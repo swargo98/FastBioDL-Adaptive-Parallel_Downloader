@@ -49,7 +49,7 @@ def download_file_worker(process_id):
     it can resume later from the last saved offset. Additionally, if there is insufficient 
     space in tmpfs_dir, the worker will sleep to allow move_file workers to clear space.
     """
-    fname = f'log_{process_id}.csv'
+    # fname = f'log_{process_id}.csv'
     ftp = ftp_connect(configurations["ftp"]["host"],
                       configurations["ftp"]["username"],
                       configurations["ftp"]["password"],
@@ -82,8 +82,8 @@ def download_file_worker(process_id):
         # Retrieve a new task if available; task is a tuple (remote_file, relative_path)
         try:
             if len(download_tasks) == 0:
-                with open(fname, 'a') as f:
-                    f.write(f"BREAK\n")
+                # with open(fname, 'a') as f:
+                #     f.write(f"BREAK\n")
                 break  # No more download tasks remain.
             task = download_tasks.pop(0)
         except IndexError:
@@ -109,8 +109,8 @@ def download_file_worker(process_id):
             def callback(data):
                 nonlocal offset
                 # Check if there is enough free space before writing.
-                with open(fname, 'a') as f:
-                    f.write(f"{local_temp_file}, {offset}\n")
+                # with open(fname, 'a') as f:
+                #     f.write(f"{local_temp_file}, {offset}\n")
                 _, free_now = available_space(tmpfs_dir)
                 while free_now*1024*1024 <= (len(data) + chunk_size):
                     # print('line 167')
@@ -122,14 +122,14 @@ def download_file_worker(process_id):
                     time.sleep(0.1)
                 os.write(fd, data)
                 offset += len(data) 
-                with open(fname, 'a') as f:
-                    f.write(f"{local_temp_file}, {offset}\n")
+                # with open(fname, 'a') as f:
+                #     f.write(f"{local_temp_file}, {offset}\n")
                 transfer_file_offsets[relative_path] = offset
                 # Check if the optimizer has now paused this worker. If so, abort the download. (Redundant???)
                 if download_process_status[process_id] == 0:
-                    with open(fname, 'a') as f:
-                        f.write(f"PAUSED\n")
-                    print(f"{local_temp_file}, PAUSED")
+                    # with open(fname, 'a') as f:
+                    #     f.write(f"PAUSED\n")
+                    # print(f"{local_temp_file}, PAUSED")
                     raise Exception("Download paused by optimizer.")
 
             logger.debug(f"[Download #{process_id}] Downloading {remote_file} -> {local_temp_file} starting at offset {offset}")
@@ -140,15 +140,15 @@ def download_file_worker(process_id):
             # Mark the file as completely downloaded.
             with transfer_complete.get_lock():
                 transfer_complete.value += 1
-                with open(fname, 'a') as f:
-                    f.write(f"DONE\n")
+                # with open(fname, 'a') as f:
+                #     f.write(f"DONE\n")
 
             # Queue the file for moving and record that the task is completed.
             mQueue.append(relative_path)
             completed_tasks.append(task)
             logger.info(f"[Download #{process_id}] Completed {relative_path}")
-            with open(fname, 'a') as f:
-                    f.write(f"BREAK 146\n")
+            # with open(fname, 'a') as f:
+            #         f.write(f"BREAK 146\n")
             break
 
         except Exception as e:

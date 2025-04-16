@@ -1,6 +1,6 @@
 configurations = {
     "ftp": {
-        "host": "131.151.90.131",
+        "host": "192.168.1.1",
         "username": 'rms',
         "password": '112358',
         "port": 21,
