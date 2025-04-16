@@ -30,6 +30,7 @@ def ftp_connect(host, username, password, port=21):
         ftp = ftplib.FTP()
         ftp.connect(host, port)
         ftp.login(username, password)
+        ftp.set_pasv(True)
         logger.info(f"Connected to FTP server: {host} as {username}")
         return ftp
     except ftplib.all_errors as e:
@@ -39,65 +40,6 @@ def ftp_connect(host, username, password, port=21):
 #############################
 # Worker functions
 #############################
-# def download_file_worker(process_id):
-#     """
-#     Download worker: each process connects to FTP and downloads files (one task at a time)
-#     from the shared download_tasks list. As each file is downloaded to tmpfs_dir,
-#     its relative path is appended to the mQueue for moving.
-#     """
-#     # Create a dedicated FTP connection for this process
-#     ftp = ftp_connect(configurations["ftp"]["host"], 
-#                       configurations["ftp"]["username"], 
-#                       configurations["ftp"]["password"],
-#                       configurations["ftp"].get("port", 21))
-#     while True:
-#         try:
-#             # Atomically remove a download task; each task is a tuple (remote_file, relative_path)
-#             if len(download_tasks) == 0:
-#                 break
-#             task = download_tasks.pop(0)
-#         except IndexError:
-#             time.sleep(0.1)
-#             continue
-
-#         remote_file, relative_path = task
-#         local_temp_file = os.path.join(tmpfs_dir, relative_path)
-#         # Ensure the destination directory exists for the temporary file
-#         os.makedirs(os.path.dirname(local_temp_file), exist_ok=True)
-
-#         try:
-#             fd = os.open(local_temp_file, os.O_CREAT | os.O_RDWR)
-#             # Keep track of downloaded bytes in a mutable container for closure
-#             offset = [0]
-#             transfer_file_offsets[relative_path] = 0
-
-#             # Define a callback to write blocks to file
-#             def callback(data):
-#                 os.write(fd, data)
-#                 offset[0] += len(data)
-#                 transfer_file_offsets[relative_path] = offset[0]
-
-#             logger.debug(f"[Download #{process_id}] Downloading {remote_file} -> {local_temp_file}")
-#             ftp.retrbinary('RETR ' + remote_file, callback, blocksize=chunk_size)
-#             os.close(fd)
-#             # Mark this file as downloaded by increasing the counter
-#             with transfer_complete.get_lock():
-#                 transfer_complete.value += 1
-
-#             # Push the file into the moving queue (using its relative path)
-#             mQueue.append(relative_path)
-#             completed_tasks.append(task)
-#             logger.info(f"[Download #{process_id}] Completed {relative_path}")
-#         except Exception as e:
-#             logger.error(f"[Download #{process_id}] Error downloading file {remote_file}: {e}")
-
-#     # Optional small delay before closing the FTP connection to let the server settle.
-#     time.sleep(0.2)
-#     try:
-#         ftp.quit()
-#     except ftplib.error_temp as e:
-#         logger.error(f"[Download #{process_id}] ftp.quit() error (ignored): {e}")
-#         ftp.close()  # Forcefully close the connection if quit fails.
 
 def download_file_worker(process_id):
     """
@@ -107,10 +49,12 @@ def download_file_worker(process_id):
     it can resume later from the last saved offset. Additionally, if there is insufficient 
     space in tmpfs_dir, the worker will sleep to allow move_file workers to clear space.
     """
+    fname = f'log_{process_id}.csv'
     ftp = ftp_connect(configurations["ftp"]["host"],
                       configurations["ftp"]["username"],
                       configurations["ftp"]["password"],
                       configurations["ftp"].get("port", 21))
+    ftp.set_pasv(True)
     # Loop until there are no tasks
     while True:
         # Check if the optimizer has paused this worker.
@@ -138,6 +82,8 @@ def download_file_worker(process_id):
         # Retrieve a new task if available; task is a tuple (remote_file, relative_path)
         try:
             if len(download_tasks) == 0:
+                with open(fname, 'a') as f:
+                    f.write(f"BREAK\n")
                 break  # No more download tasks remain.
             task = download_tasks.pop(0)
         except IndexError:
@@ -163,6 +109,8 @@ def download_file_worker(process_id):
             def callback(data):
                 nonlocal offset
                 # Check if there is enough free space before writing.
+                with open(fname, 'a') as f:
+                    f.write(f"{local_temp_file}, {offset}\n")
                 _, free_now = available_space(tmpfs_dir)
                 while free_now*1024*1024 <= (len(data) + chunk_size):
                     # print('line 167')
@@ -173,10 +121,15 @@ def download_file_worker(process_id):
                     # Worker is paused; sleep a bit and then check again.
                     time.sleep(0.1)
                 os.write(fd, data)
-                offset += len(data)
+                offset += len(data) 
+                with open(fname, 'a') as f:
+                    f.write(f"{local_temp_file}, {offset}\n")
                 transfer_file_offsets[relative_path] = offset
                 # Check if the optimizer has now paused this worker. If so, abort the download. (Redundant???)
                 if download_process_status[process_id] == 0:
+                    with open(fname, 'a') as f:
+                        f.write(f"PAUSED\n")
+                    print(f"{local_temp_file}, PAUSED")
                     raise Exception("Download paused by optimizer.")
 
             logger.debug(f"[Download #{process_id}] Downloading {remote_file} -> {local_temp_file} starting at offset {offset}")
@@ -187,19 +140,33 @@ def download_file_worker(process_id):
             # Mark the file as completely downloaded.
             with transfer_complete.get_lock():
                 transfer_complete.value += 1
+                with open(fname, 'a') as f:
+                    f.write(f"DONE\n")
 
             # Queue the file for moving and record that the task is completed.
             mQueue.append(relative_path)
             completed_tasks.append(task)
             logger.info(f"[Download #{process_id}] Completed {relative_path}")
+            with open(fname, 'a') as f:
+                    f.write(f"BREAK 146\n")
             break
 
         except Exception as e:
             # If the exception is due to a pause, simply log and leave the offset for resuming.
             if str(e) == "Download paused by optimizer.":
                 logger.info(f"[Download #{process_id}] Paused download of {relative_path} at offset {transfer_file_offsets[relative_path]}")
+                download_tasks.append(task)
+                try:
+                    ftp.quit()
+                except Exception:
+                    ftp.close()
+                ftp = ftp_connect(configurations["ftp"]["host"],
+                      configurations["ftp"]["username"],
+                      configurations["ftp"]["password"],
+                      configurations["ftp"].get("port", 21))
+                ftp.set_pasv(True)
             else:
-                logger.error(f"[Download #{process_id}] Error downloading {remote_file}: {e}")
+                logger.info(f"[Download #{process_id}] Error downloading {remote_file}: {e}")
             try:
                 os.close(fd)
             except Exception:
@@ -296,8 +263,8 @@ def report_network_throughput():
     while transfer_done.value == 0:
         t1 = time.time()
         elapsed = round(t1 - start_time, 1)
-        if elapsed > 15:
-            if sum(throughput_logs[-15:]) == 0:
+        if elapsed > 1000:
+            if sum(throughput_logs[-1000:]) == 0:
                 transfer_done.value = 1
                 break
         if elapsed >= 0.1:
@@ -324,8 +291,8 @@ def report_io_throughput():
     while transfer_done.value == 0 or move_complete.value < transfer_complete.value:
         t1 = time.time()
         elapsed = round(t1 - start_time, 1)
-        if elapsed > 15:
-            if sum(io_throughput_logs[-15:]) == 0:
+        if elapsed > 1000:
+            if sum(io_throughput_logs[-1000:]) == 0:
                 transfer_done.value = 1
                 move_complete.value = transfer_complete.value
                 break
@@ -540,6 +507,7 @@ if __name__ == '__main__':
 
     # Temporary directory – using shared memory (adjust as needed)
     tmpfs_dir = f"/dev/shm/data{os.getpid()}/"
+    tmpfs_dir = "/mnt/nvme0n1/dest"
     try:
         os.makedirs(tmpfs_dir, exist_ok=True)
     except Exception as e:
