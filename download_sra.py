@@ -1,63 +1,3 @@
-# #!/usr/bin/env python3
-# """
-# download_sra.py
-
-# A script to download SRA files from NCBI given a text file of accession numbers.
-# Prerequisites:
-#   - Install SRA Toolkit (https://github.com/ncbi/sra-tools)
-#   - Ensure `prefetch` is in your PATH
-
-# Usage:
-#   python download_sra.py -i accessions.txt -o /path/to/output_dir
-#   python3 download_sra.py -i accessions.txt -o dest/
-# """
-# import argparse
-# import subprocess
-# import os
-# import sys
-
-# def download_sra(accession, output_dir):
-#     """Download a single SRA accession using prefetch."""
-#     try:
-#         cmd = ["prefetch", accession, "--output-directory", output_dir]
-#         result = subprocess.run(cmd, capture_output=True, text=True)
-#         if result.returncode == 0:
-#             print(f"[OK]   Downloaded {accession}")
-#         else:
-#             print(f"[ERR]  Failed {accession}: {result.stderr.strip()}")
-#     except FileNotFoundError:
-#         print("Error: prefetch command not found. Please install SRA Toolkit and add it to your PATH.")
-#         sys.exit(1)
-
-
-# def main():
-#     parser = argparse.ArgumentParser(description="Download SRA files listed in a text file.")
-#     parser.add_argument("-i", "--input", required=True,
-#                         help="Path to text file with one SRA accession per line.")
-#     parser.add_argument("-o", "--outdir", default=".",
-#                         help="Directory to save downloaded SRA files.")
-#     args = parser.parse_args()
-
-#     if not os.path.isfile(args.input):
-#         print(f"Error: Input file '{args.input}' not found.")
-#         sys.exit(1)
-
-#     os.makedirs(args.outdir, exist_ok=True)
-
-#     with open(args.input) as f:
-#         accessions = [line.strip() for line in f if line.strip()]
-
-#     if not accessions:
-#         print("No accessions found in input file.")
-#         sys.exit(1)
-
-#     for acc in accessions:
-#         download_sra(acc, args.outdir)
-
-
-# if __name__ == "__main__":
-#     main()
-
 #!/usr/bin/env python3
 """
 download_sra_ena.py
@@ -72,6 +12,7 @@ import requests
 import os
 import sys
 from typing import List
+import time
 
 ENA_API = "https://www.ebi.ac.uk/ena/portal/api/filereport"
 
@@ -137,7 +78,15 @@ def main():
         if not urls or urls[0] == "":
             print(f"[WARN] no ENA URLs for {acc}", file=sys.stderr)
             continue
+        start = time.time()
         download_urls(urls, args.outdir)
+        end = time.time()
+        elapsed = end - start
+        print(f"[INFO] Downloaded {acc} in {elapsed:.2f} seconds")
 
 if __name__ == "__main__":
+    start = time.time()
     main()
+    end = time.time()
+    elapsed = end - start
+    print(f"[INFO] Finished in {elapsed:.2f} seconds")

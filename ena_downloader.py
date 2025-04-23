@@ -16,6 +16,41 @@ from config_receiver import configurations
 from utils import available_space, get_dir_size, run
 from search import base_optimizer, hill_climb, cg_opt, gradient_opt_fast, exit_signal
 
+import requests
+from typing import List
+import argparse
+
+ENA_API = "https://www.ebi.ac.uk/ena/portal/api/filereport"
+
+def get_ena_urls(acc: str, field: str = "sra_ftp") -> List[str]:
+    """
+    Query ENA for the given field (sra_ftp or fastq_ftp) for an accession.
+    Returns a list of HTTPS URLs (prepends https:// if no scheme present).
+    """
+    params = {
+        "accession": acc,
+        "result":    "read_run",
+        "fields":    field,
+        "download":  "true"
+    }
+    r = requests.get(ENA_API, params=params, timeout=30)
+    r.raise_for_status()
+    lines = r.text.strip().splitlines()
+    if len(lines) < 2:
+        return []
+    url_field = lines[-1].split("\t")[1]
+    
+    urls: List[str] = []
+    for u in url_field.split(";"):
+        if not u:
+            continue
+        # if the FTP mirror string is returned without a scheme, prefix with https://
+        if "://" not in u:
+            u = "https://" + u
+        urls.append(u)
+    return urls
+
+
 # Suppress FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -41,267 +76,82 @@ def ftp_connect(host, username, password, port=21):
 # Worker functions
 #############################
 
-# def download_file_worker(process_id):
-#     """
-#     Download worker: Each process connects to the FTP server and downloads files 
-#     (one task at a time) from the shared download_tasks list. Download progress 
-#     (file offset) is stored so that if the process is paused (via download_process_status)
-#     it can resume later from the last saved offset. Additionally, if there is insufficient 
-#     space in tmpfs_dir, the worker will sleep to allow move_file workers to clear space.
-#     """
-#     # fname = f'log_{process_id}.csv'
-#     ftp = ftp_connect(configurations["ftp"]["host"],
-#                       configurations["ftp"]["username"],
-#                       configurations["ftp"]["password"],
-#                       configurations["ftp"].get("port", 21))
-#     ftp.set_pasv(True)
-#     # Loop until there are no tasks
-#     while True:
-#         # Check if the optimizer has paused this worker.
-#         if download_process_status[process_id] == 0:
-#             # Worker is paused; sleep a bit and then check again.
-#             time.sleep(0.1)
-#             continue
-#         # print(process_id)
-
-#         # Check if there is enough free space in tmpfs_dir.
-#         # available_space(tmpfs_dir) should return (used, free)
-#         _, free_space = available_space(tmpfs_dir)
-#         # print(free_space*1024*1024, chunk_size)
-#         # If free space is below an arbitrary threshold (e.g., 10 times the chunk_size),
-#         # then sleep to allow move_file workers to free up space.
-#         while free_space*1024*1024 <= (chunk_size * 10):
-#             # print('line 130')
-#             # print(free_space*1024*1024, chunk_size)
-#             logger.debug(f"[Download #{process_id}] Not enough space in tmpfs_dir ({free_space} bytes free). Sleeping.")
-#             time.sleep(0.5)
-#             continue
-#         # print(process_id)
-#         # print(download_tasks)
-
-#         # Retrieve a new task if available; task is a tuple (remote_file, relative_path)
-#         try:
-#             if len(download_tasks) == 0:
-#                 # with open(fname, 'a') as f:
-#                 #     f.write(f"BREAK\n")
-#                 break  # No more download tasks remain.
-#             task = download_tasks.pop(0)
-#         except IndexError:
-#             time.sleep(0.1)
-#             continue
-
-#         # print(task)
-#         remote_file, relative_path = task
-#         local_temp_file = os.path.join(tmpfs_dir, relative_path)
-#         os.makedirs(os.path.dirname(local_temp_file), exist_ok=True)
-#         # print(f'Started Downloading {remote_file}')
-
-#         # Check for a stored offset; if the file was partially downloaded, resume from that offset.
-#         current_offset = transfer_file_offsets.get(relative_path, 0)
-
-#         try:
-#             # Open the file for reading/writing. The file pointer is set to the previously
-#             # stored offset so that the download can be resumed.
-#             fd = os.open(local_temp_file, os.O_CREAT | os.O_RDWR)
-#             os.lseek(fd, current_offset, os.SEEK_SET)
-#             offset = current_offset  # Local variable to track the updated offset.
-
-#             def callback(data):
-#                 nonlocal offset
-#                 # Check if there is enough free space before writing.
-#                 # with open(fname, 'a') as f:
-#                 #     f.write(f"{local_temp_file}, {offset}\n")
-#                 _, free_now = available_space(tmpfs_dir)
-#                 while free_now*1024*1024 <= (len(data) + chunk_size):
-#                     # print('line 167')
-#                     # print(free_now*1024*1024, len(data) + chunk_size)
-#                     logger.debug(f"[Download #{process_id}] Low space during download of {relative_path}. Pausing write.")
-#                     time.sleep(0.5)
-#                 while download_process_status[process_id] == 0:
-#                     # Worker is paused; sleep a bit and then check again.
-#                     time.sleep(0.1)
-#                 os.write(fd, data)
-#                 offset += len(data) 
-#                 # with open(fname, 'a') as f:
-#                 #     f.write(f"{local_temp_file}, {offset}\n")
-#                 transfer_file_offsets[relative_path] = offset
-#                 # Check if the optimizer has now paused this worker. If so, abort the download. (Redundant???)
-#                 if download_process_status[process_id] == 0:
-#                     # with open(fname, 'a') as f:
-#                     #     f.write(f"PAUSED\n")
-#                     # print(f"{local_temp_file}, PAUSED")
-#                     raise Exception("Download paused by optimizer.")
-
-#             logger.debug(f"[Download #{process_id}] Downloading {remote_file} -> {local_temp_file} starting at offset {offset}")
-#             # Resume the download from the saved offset using the 'rest' parameter.
-#             ftp.retrbinary(f"RETR {remote_file}", callback, blocksize=chunk_size, rest=offset)
-#             os.close(fd)
-
-#             # Mark the file as completely downloaded.
-#             with transfer_complete.get_lock():
-#                 transfer_complete.value += 1
-#                 # with open(fname, 'a') as f:
-#                 #     f.write(f"DONE\n")
-
-#             # Queue the file for moving and record that the task is completed.
-#             mQueue.append(relative_path)
-#             completed_tasks.append(task)
-#             logger.info(f"[Download #{process_id}] Completed {relative_path}")
-#             # with open(fname, 'a') as f:
-#             #         f.write(f"BREAK 146\n")
-#             break
-
-#         except Exception as e:
-#             # If the exception is due to a pause, simply log and leave the offset for resuming.
-#             if str(e) == "Download paused by optimizer.":
-#                 logger.info(f"[Download #{process_id}] Paused download of {relative_path} at offset {transfer_file_offsets[relative_path]}")
-#                 download_tasks.append(task)
-#                 try:
-#                     ftp.quit()
-#                 except Exception:
-#                     ftp.close()
-#                 ftp = ftp_connect(configurations["ftp"]["host"],
-#                       configurations["ftp"]["username"],
-#                       configurations["ftp"]["password"],
-#                       configurations["ftp"].get("port", 21))
-#                 ftp.set_pasv(True)
-#             else:
-#                 logger.info(f"[Download #{process_id}] Error downloading {remote_file}: {e}")
-#             try:
-#                 os.close(fd)
-#             except Exception:
-#                 pass
-
-#     # Allow for a slight delay before terminating the FTP connection.
-#     time.sleep(0.2)
-#     try:
-#         ftp.quit()
-#     except ftplib.error_temp as e:
-#         logger.error(f"[Download #{process_id}] ftp.quit() error (ignored): {e}")
-#         ftp.close()
-
 def download_file_worker(process_id):
     """
-    Download worker: Each process connects to the FTP server and downloads files 
-    (one task at a time) from the shared download_tasks list, using a raw data
-    socket (via transfercmd) instead of retrbinary().  Supports pause/resume,
-    free-space throttling, and offset‐based restarts.
+    Download worker (HTTP) with pause/resume support.
     """
-    # Establish initial FTP connection
-    ftp = ftp_connect(
-        configurations["ftp"]["host"],
-        configurations["ftp"]["username"],
-        configurations["ftp"]["password"],
-        configurations["ftp"].get("port", 21)
-    )
-    ftp.set_pasv(True)
-
+    logger.info(f"[Download #{process_id}] Worker starting")
     while True:
-        # 1) pause if optimizer says so
         if download_process_status[process_id] == 0:
-            time.sleep(0.1)
+            # Worker is paused; sleep a bit and then check again.
+            time.sleep(1)
             continue
-
-        # 2) get next task, or exit if none remain
+        # Grab the next task or exit if none remain
         try:
-            remote_file, relative_path = download_tasks.pop(0)
+            url, relative_path = download_tasks.pop(0)
         except IndexError:
-            break
+            return
 
         local_temp = os.path.join(tmpfs_dir, relative_path)
         os.makedirs(os.path.dirname(local_temp), exist_ok=True)
 
-        # 3) determine resume offset
+        # Resume from previous offset if any
         offset = transfer_file_offsets.get(relative_path, 0)
+        headers = {'Range': f'bytes={offset}-'} if offset else {}
 
-        # open and seek
-        fd = os.open(local_temp, os.O_CREAT | os.O_RDWR)
-        os.lseek(fd, offset, os.SEEK_SET)
-
+        logger.debug(f"[Download #{process_id}] Start {relative_path} @ offset {offset}")
+        fd = None
         try:
-            # 4) open the data connection, telling the server to REST to 'offset'
-            cmd = f"RETR {remote_file}"
-            ftp.sendcmd('TYPE I')
-            data_sock = ftp.transfercmd(cmd, rest=offset)
+            # Initiate (or resume) HTTP download
+            resp = requests.get(url, stream=True, headers=headers, timeout=30)
+            resp.raise_for_status()
 
-            # 5) read/write loop
-            while True:
-                chunk = data_sock.recv(chunk_size)
-                if not chunk:
-                    break  # EOF
+            # Open file descriptor and seek to offset
+            fd = os.open(local_temp, os.O_CREAT | os.O_RDWR)
+            os.lseek(fd, offset, os.SEEK_SET)
 
-                # 5a) throttle on low tmpfs space
+            for chunk in resp.iter_content(chunk_size=chunk_size):
+                # Throttle if tmpfs is low on space
                 _, free_now = available_space(tmpfs_dir)
-                while free_now*1024*1024 <= len(chunk) + chunk_size:
+                while free_now * 1024 * 1024 <= (len(chunk) + chunk_size):
                     time.sleep(0.5)
                     _, free_now = available_space(tmpfs_dir)
 
-                # 5b) pause if optimizer tells us to
+                # Pause if optimizer has set this worker to 0
                 if download_process_status[process_id] == 0:
-                    data_sock.close()
-                    raise Exception("Download paused by optimizer")
+                    raise RuntimeError("Download paused by optimizer")
 
-                # 5c) write to disk & update offset
+                # Write data and update offset
                 os.write(fd, chunk)
                 offset += len(chunk)
                 transfer_file_offsets[relative_path] = offset
 
-            # 6) cleanly close data socket and consume final FTP response
-            data_sock.close()
-            ftp.voidresp()
-
-            # 7) mark complete
-            os.close(fd)
+            # Finished download
+            os.close(fd); fd = None
             with transfer_complete.get_lock():
                 transfer_complete.value += 1
-
             mQueue.append(relative_path)
-            completed_tasks.append((remote_file, relative_path))
+            completed_tasks.append((url, relative_path))
             logger.info(f"[Download #{process_id}] Completed {relative_path}")
 
         except Exception as e:
-            # ensure sockets and fds are closed
-            try: data_sock.close()
-            except: pass
-            try: os.close(fd)
-            except: pass
-
-            if str(e) == "Download paused by optimizer":
-                # requeue for resume
+            msg = str(e)
+            if msg == "Download paused by optimizer":
+                # Requeue this exact task for later resume
                 logger.info(f"[Download #{process_id}] Paused {relative_path} @ offset {offset}")
-                download_tasks.append((remote_file, relative_path))
-
-                # restart FTP connection (to avoid a “poisoned” socket)
-                try: ftp.quit()
-                except: ftp.close()
-
-                ftp = ftp_connect(
-                    configurations["ftp"]["host"],
-                    configurations["ftp"]["username"],
-                    configurations["ftp"]["password"],
-                    configurations["ftp"].get("port", 21)
-                )
-                ftp.set_pasv(True)
-
+                download_tasks.append((url, relative_path))
             else:
-                # other error: log and requeue if incomplete
+                # Other error: log and requeue if incomplete
                 logger.error(f"[Download #{process_id}] Error {relative_path}: {e}")
-                # try to requeue only if file isn’t fully fetched
-                try:
-                    total_len = int(ftp.size(remote_file))
-                except:
-                    total_len = offset
+                total_len = int(resp.headers.get('Content-Length', offset))
                 if offset < total_len:
-                    download_tasks.append((remote_file, relative_path))
-
-        # loop back for next task or resume
-
-    # once out of the loop, clean up
-    time.sleep(0.1)
-    try:
-        ftp.quit()
-    except ftplib.error_temp:
-        ftp.close()
+                    download_tasks.append((url, relative_path))
+        finally:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except:
+                    pass
 
 def move_file(process_id):
     """
@@ -618,6 +468,18 @@ if __name__ == '__main__':
             ]
         )
 
+        parser = argparse.ArgumentParser(
+            description="Parallel ENA SRA/FASTQ downloader"
+        )
+        parser.add_argument("-i","--input",   required=True,
+                             help="Text file: one accession per line.")
+        parser.add_argument("-o","--outdir", default=".",
+                        help="Where to save downloads.")
+        parser.add_argument("--fastq", action="store_true",
+                             help="Use fastq_ftp instead of sra_ftp")
+        args = parser.parse_args()
+
+
     # Set configuration parameters
     configurations["cpu_count"] = mp.cpu_count()
     if configurations["thread_limit"] == -1:
@@ -653,15 +515,35 @@ if __name__ == '__main__':
     download_tasks = mp.Manager().list() # List of FTP download tasks.
     completed_tasks = mp.Manager().list() # List of FTP download tasks.
 
+    # Read accessions and build download_tasks from ENA:
+    with open(args.input) as f:
+        accs = [l.strip() for l in f if l.strip()]
+    field = "fastq_ftp" if args.fastq else "sra_ftp"
+    for acc in accs:
+        try:
+            urls = get_ena_urls(acc, field)
+        except Exception as e:
+            logger.error(f"ENA lookup failed for {acc}: {e}")
+            continue
+        for url in urls:
+            # task: (url, filename)
+            download_tasks.append((url, os.path.basename(url)))
+
+    all_tasks = []
+    for task in download_tasks:
+        all_tasks.append(task)
+
+    logger.info(f"Total files to download: {len(download_tasks)}")
+
     # Prepare download tasks by listing the remote FTP directory recursively.
-    ftp_listing = ftp_connect(configurations["ftp"]["host"],
-                              configurations["ftp"]["username"],
-                              configurations["ftp"]["password"],
-                              configurations["ftp"].get("port", 21))
-    all_tasks = list_ftp_files(ftp_listing, configurations["ftp"]["remote_dir"], "")
-    ftp_listing.quit()
-    for task in all_tasks:
-        download_tasks.append(task)
+    # ftp_listing = ftp_connect(configurations["ftp"]["host"],
+    #                           configurations["ftp"]["username"],
+    #                           configurations["ftp"]["password"],
+    #                           configurations["ftp"].get("port", 21))
+    # all_tasks = list_ftp_files(ftp_listing, configurations["ftp"]["remote_dir"], "")
+    # ftp_listing.quit()
+    # for task in all_tasks:
+    #     download_tasks.append(task)
     logger.info(f"Total files to download: {len(download_tasks)}: {download_tasks}")
     
     num_workers = len(download_tasks)
