@@ -48,6 +48,7 @@ def get_ena_urls(acc: str, field: str = "sra_ftp") -> List[str]:
         if "://" not in u:
             u = "https://" + u
         urls.append(u)
+    print(urls)
     return urls
 
 
@@ -318,7 +319,8 @@ def download_probing(params):
     # Probing for download concurrency. Uses network throughput from downloaded bytes.
     if transfer_done.value == 1:
         return exit_signal
-    params = [1 if x < 1 else int(np.round(x)) for x in params]
+    # params = [1 if x < 1 else int(np.round(x)) for x in params]
+    params = [1 for x in params]
     logger.info("Download -- Probing Parameters: " + str(params))
     for i in range(len(download_process_status)):
         download_process_status[i] = 1 if i < params[0] else 0
@@ -326,7 +328,8 @@ def download_probing(params):
     n_time = time.time() + probing_time - 1.05
     while time.time() < n_time and transfer_done.value == 0:
         time.sleep(0.1)
-    thrpt = np.mean(throughput_logs[-2:]) if len(throughput_logs) > 2 else 0
+    # thrpt = np.mean(throughput_logs[-2:]) if len(throughput_logs) > 2 else 0
+    thrpt = np.mean(throughput_logs[-(probing_time-1):]) if len(throughput_logs) > (probing_time-1) else 0
     K = float(configurations["K"])
     cc_impact_nl = K ** params[0]
     score = thrpt / cc_impact_nl if cc_impact_nl != 0 else 0
@@ -486,6 +489,7 @@ if __name__ == '__main__':
         configurations["thread_limit"] = configurations["cpu_count"]
     # Use the provided "data_dir" as the final destination directory.
     root_dir = configurations["data_dir"]
+    # root_dir = "/mnt/nvme0n1/dest"
     chunk_size = 1024*1024
     probing_time = configurations["probing_sec"]
     io_limit = int(configurations["io_limit"]) if ("io_limit" in configurations and configurations["io_limit"] is not None) else -1
