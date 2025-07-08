@@ -319,8 +319,8 @@ def download_probing(params):
     # Probing for download concurrency. Uses network throughput from downloaded bytes.
     if transfer_done.value == 1:
         return exit_signal
-    # params = [1 if x < 1 else int(np.round(x)) for x in params]
-    params = [1 for x in params]
+    params = [1 if x < 1 else int(np.round(x)) for x in params]
+    # params = [1 for x in params]
     logger.info("Download -- Probing Parameters: " + str(params))
     for i in range(len(download_process_status)):
         download_process_status[i] = 1 if i < params[0] else 0
@@ -446,6 +446,10 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, graceful_exit)
     signal.signal(signal.SIGTERM, graceful_exit)
 
+    # make a directory for logs if it does not exist
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
+
     # Configure logging
     log_FORMAT = '%(created)f -- %(levelname)s: %(message)s'
     log_file = f'logs/receiver.{datetime.datetime.now().strftime("%m_%d_%Y_%H_%M_%S")}.log'
@@ -496,7 +500,7 @@ if __name__ == '__main__':
 
     # Temporary directory – using shared memory (adjust as needed)
     tmpfs_dir = f"/dev/shm/data{os.getpid()}/"
-    tmpfs_dir = "/mnt/nvme0n1/dest"
+    # tmpfs_dir = "/mnt/nvme0n1/dest"
     try:
         os.makedirs(tmpfs_dir, exist_ok=True)
     except Exception as e:
