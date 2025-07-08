@@ -211,6 +211,9 @@ def move_file(process_id):
                             # print(f"[Move #{process_id}] complete for {fname}. {move_complete.value}")
                         logger.debug(f"[Move #{process_id}] Moved {fname}")
                         os.remove(src_path)
+                        ################### remove the next two line; these are just for testing
+                        if os.path.exists(dst_path):
+                            os.remove(dst_path)
                         logger.debug(f"[Move #{process_id}] Cleanup complete for {fname}")
                         _, free_now = available_space(tmpfs_dir)
                         # print(f"[Move #{process_id}] Cleanup complete for {fname}. Free: {free_now}")
@@ -230,6 +233,8 @@ def move_file(process_id):
 #############################
 def report_network_throughput():
     previous_total, previous_time = 0, 0
+    t = time.time()
+    fname = f'log_download_{datetime.datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S")}.csv'
     # Wait until the start time is set
     while start.value == 0:
         time.sleep(0.1)
@@ -251,7 +256,6 @@ def report_network_throughput():
             throughput_logs.append(curr_thrpt)
             logger.info(f"Download Throughput @{elapsed}s: Current: {curr_thrpt}Mbps, Average: {thrpt}Mbps")
             t2 = time.time()
-            fname = 'timed_log_download.csv'
             with open(fname, 'a') as f:
                 f.write(f"{t2}, {elapsed}, {curr_thrpt}, {sum(download_process_status)}\n")
             time.sleep(max(0, 1 - (t2 - t1)))
@@ -259,6 +263,8 @@ def report_network_throughput():
 
 def report_io_throughput():
     previous_total, previous_time = 0, 0
+    t = time.time()
+    fname = f'log_io_{datetime.datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S")}.csv'
     while start.value == 0:
         time.sleep(0.1)
     start_time = start.value
@@ -280,7 +286,6 @@ def report_io_throughput():
             io_throughput_logs.append(curr_thrpt)
             logger.info(f"I/O Throughput @{elapsed}s: Current: {curr_thrpt}Mbps, Average: {thrpt}Mbps")
             t2 = time.time()
-            fname = 'timed_log_io.csv'
             with open(fname, 'a') as f:
                 f.write(f"{t2}, {elapsed}, {curr_thrpt}, {sum(io_process_status)}\n")
             time.sleep(max(0, 1 - (t2 - t1)))
@@ -500,7 +505,7 @@ if __name__ == '__main__':
 
     # Temporary directory – using shared memory (adjust as needed)
     tmpfs_dir = f"/dev/shm/data{os.getpid()}/"
-    # tmpfs_dir = "/mnt/nvme0n1/dest"
+    tmpfs_dir = "/mnt/nvme0n1/dest"
     try:
         os.makedirs(tmpfs_dir, exist_ok=True)
     except Exception as e:
