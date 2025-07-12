@@ -590,22 +590,22 @@ if __name__ == '__main__':
         p.start()
 
     # Start move workers.
-    move_workers = [mp.Process(target=move_file, args=(i,)) for i in range(num_workers)]
-    for p in move_workers:
-        p.daemon = True
-        p.start()
+    # move_workers = [mp.Process(target=move_file, args=(i,)) for i in range(num_workers)]
+    # for p in move_workers:
+    #     p.daemon = True
+    #     p.start()
 
     # A shared start time for throughput measurement.
     start = mp.Value("d", time.time())
     # Start throughput reporting threads.
     network_report_thread = Thread(target=report_network_throughput)
     network_report_thread.start()
-    io_report_thread = Thread(target=report_io_throughput)
-    io_report_thread.start()
+    # io_report_thread = Thread(target=report_io_throughput)
+    # io_report_thread.start()
 
-    # Start optimizer threads for I/O and Download concurrency.
-    io_optimizer_thread = Thread(target=run_io_optimizer, args=(io_probing,))
-    io_optimizer_thread.start()
+    # # Start optimizer threads for I/O and Download concurrency.
+    # io_optimizer_thread = Thread(target=run_io_optimizer, args=(io_probing,))
+    # io_optimizer_thread.start()
     download_optimizer_thread = Thread(target=run_download_optimizer, args=(download_probing,))
     download_optimizer_thread.start()
 
@@ -621,19 +621,19 @@ if __name__ == '__main__':
 
     # print(f"609 Move complete: {move_complete.value}; Transfer Complete: {transfer_complete.value}")
     # Wait until all moved files match the count of completed downloads.
-    while move_complete.value < transfer_complete.value:
-        # print(f"612 Move complete: {move_complete.value}; Transfer Complete: {transfer_complete.value}")
-        time.sleep(0.1)
+    # while move_complete.value < transfer_complete.value:
+    #     # print(f"612 Move complete: {move_complete.value}; Transfer Complete: {transfer_complete.value}")
+    #     time.sleep(0.1)
     time.sleep(1)
     # Terminate download worker processes if still alive.
     for p in download_workers:
         if p.is_alive():
             p.terminate()
             p.join(timeout=0.1)
-    for p in move_workers:
-        if p.is_alive():
-            p.terminate()
-            p.join(timeout=0.1)
+    # for p in move_workers:
+    #     if p.is_alive():
+    #         p.terminate()
+    #         p.join(timeout=0.1)
 
     shutil.rmtree(tmpfs_dir, ignore_errors=True)
     logger.info("Transfer Completed!")
