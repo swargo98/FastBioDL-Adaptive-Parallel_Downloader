@@ -1,109 +1,65 @@
-<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36" version="26.2.12">
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36" version="27.0.9">
   <diagram name="Page-1" id="tqGjcr9S11x93hs8M1ku">
-    <mxGraphModel dx="1428" dy="831" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="1426" dy="831" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="bamR-uw1efooT5ONj0Ax-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="bamR-uw1efooT5ONj0Ax-1" target="bamR-uw1efooT5ONj0Ax-2">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="bamR-uw1efooT5ONj0Ax-1" target="bamR-uw1efooT5ONj0Ax-2" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-1" value="Get Accession List" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-1" value="Get Accession List" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
           <mxGeometry x="100" y="110" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="bamR-uw1efooT5ONj0Ax-2" target="bamR-uw1efooT5ONj0Ax-3">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="bamR-uw1efooT5ONj0Ax-2" target="bamR-uw1efooT5ONj0Ax-3" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-2" value="Get URLs through API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-2" value="Get URLs through API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
           <mxGeometry x="260" y="110" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="bamR-uw1efooT5ONj0Ax-3" target="bamR-uw1efooT5ONj0Ax-6">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="bamR-uw1efooT5ONj0Ax-3" target="bamR-uw1efooT5ONj0Ax-6" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-3" value="Put URLs in DownloadQueue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-3" value="Put URLs in DownloadQueue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
           <mxGeometry x="420" y="110" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="bamR-uw1efooT5ONj0Ax-6" target="bamR-uw1efooT5ONj0Ax-12">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-6" value="Download Workers download the files to temporary directory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
-          <mxGeometry x="570" y="110" width="120" height="60" as="geometry" />
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-12" value="Download Completed?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
-          <mxGeometry x="720" y="100" width="80" height="80" as="geometry" />
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="bamR-uw1efooT5ONj0Ax-15" target="bamR-uw1efooT5ONj0Ax-18">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-15" value="Put downloaded files in MoveQueue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
-          <mxGeometry x="840" y="110" width="120" height="60" as="geometry" />
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-16" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="bamR-uw1efooT5ONj0Ax-6" edge="1">
           <mxGeometry relative="1" as="geometry">
-            <mxPoint x="800" y="139.5" as="sourcePoint" />
-            <mxPoint x="840" y="140" as="targetPoint" />
+            <mxPoint x="740" y="140" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-17" value="Yes" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;" connectable="0" vertex="1" parent="bamR-uw1efooT5ONj0Ax-16">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="bamR-uw1efooT5ONj0Ax-6" value="Download Workers download the files" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="570" y="110" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-18" value="Move Workers move the files to the intended directory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
-          <mxGeometry x="990" y="110" width="120" height="60" as="geometry" />
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-22" value="&lt;b&gt;Worker count optimizer&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-22" value="&lt;b&gt;Worker count optimizer&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
           <mxGeometry x="550" y="40" width="160" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-24" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-24" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="580" y="110" as="sourcePoint" />
             <mxPoint x="580" y="70" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-25" value="Real-time throughput" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;" connectable="0" vertex="1" parent="bamR-uw1efooT5ONj0Ax-24">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-25" value="Real-time throughput" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;" parent="bamR-uw1efooT5ONj0Ax-24" connectable="0" vertex="1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="-17" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-26" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-26" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="680" y="70" as="sourcePoint" />
             <mxPoint x="680" y="110" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-27" value="Label" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;" connectable="0" vertex="1" parent="bamR-uw1efooT5ONj0Ax-26">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-27" value="Label" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;" parent="bamR-uw1efooT5ONj0Ax-26" connectable="0" vertex="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-28" value="Updated worker count" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="bamR-uw1efooT5ONj0Ax-26">
+        <mxCell id="bamR-uw1efooT5ONj0Ax-28" value="Updated worker count" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" parent="bamR-uw1efooT5ONj0Ax-26" vertex="1" connectable="0">
           <mxGeometry x="0.0286" y="-9" relative="1" as="geometry">
             <mxPoint x="23" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-34" value="&lt;b&gt;Worker count optimizer&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
-          <mxGeometry x="970" y="40" width="160" height="30" as="geometry" />
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-35" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1000" y="110" as="sourcePoint" />
-            <mxPoint x="1000" y="70" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-36" value="Real-time throughput" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;" connectable="0" vertex="1" parent="bamR-uw1efooT5ONj0Ax-35">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="-17" as="offset" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-37" value="" style="endArrow=classic;html=1;rounded=0;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1100" y="70" as="sourcePoint" />
-            <mxPoint x="1100" y="110" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-38" value="Label" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;" connectable="0" vertex="1" parent="bamR-uw1efooT5ONj0Ax-37">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="bamR-uw1efooT5ONj0Ax-39" value="Updated worker count" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="bamR-uw1efooT5ONj0Ax-37">
-          <mxGeometry x="0.0286" y="-9" relative="1" as="geometry">
-            <mxPoint x="23" as="offset" />
-          </mxGeometry>
+        <mxCell id="rnGacDU8_WMs-0VwNURf-1" value="Download Completed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="740" y="110" width="120" height="60" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
