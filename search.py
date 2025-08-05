@@ -88,6 +88,20 @@ def base_optimizer(configurations, black_box_function, logger, verbose=True):
 
     return params
 
+def run_probe(current_cc, count, verbose, logger, black_box_function):
+    if verbose:
+        logger.info("Iteration {0} Starts ...".format(count))
+
+    t1 = time.time()
+    current_value = black_box_function(current_cc)
+    t2 = time.time()
+
+    if verbose:
+        logger.info("Iteration {0} Ends, Took {1} Seconds. Score: {2}.".format(
+            count, np.round(t2-t1, 2), current_value))
+
+    return current_value
+
 def gradient_opt_fast(max_cc, black_box_function, logger, verbose=True):
     count = 0
     cache = OrderedDict()
