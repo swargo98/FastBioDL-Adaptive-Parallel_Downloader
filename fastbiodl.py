@@ -24,15 +24,34 @@ NCBI_EFETCH = (
 )  # ?db=sra&id=<ACC>&rettype=runinfo&retmode=text
 
 def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[str]:
-    print(f"Fetching URLs for {acc} from NCBI SRA using field '{field}'")
     """
-    Fetch download URLs for a single Run/Experiment accession from NCBI SRA.
+    Fetch download URLs for a given SRA accession from NCBI’s efetch “runinfo” endpoint.
 
-    The NCBI `efetch ... -format runinfo` CSV has:
-        * `download_path`  – HTTPS link to the .sra container      (≈ ENA's `sra_ftp`)
-        * `fastq_ftp`      – semi-colon list of FASTQ FTP objects  (≈ ENA's `fastq_ftp`)
-    See the official header excerpt: Run, …, download_path, …, fastq_ftp, … :contentReference[oaicite:0]{index=0}
+    Parameters
+    ----------
+    acc : str
+        The Run/Experiment accession (e.g. “SRR1234567”).
+    field : str, optional
+        Which field of the runinfo CSV to extract URLs from; either
+        `"sra_ftp"` (uses `download_path`) or `"fastq_ftp"`. Default is `"sra_ftp"`.
+
+    Returns
+    -------
+    List[str]
+        A list of one or more HTTP/HTTPS URLs. Empty if the accession is
+        not found or the requested field isn’t in the CSV header.
+
+    Raises
+    ------
+    HTTPError
+        If the HTTP request to NCBI fails (non-200 status).
+
+    Notes
+    -----
+    Performs a brief `time.sleep(0.2)` to avoid hammering NCBI in loops.
     """
+    
+    logger.info(f"Fetching URLs for {acc} from NCBI SRA using field '{field}'")
     # 1) ask runinfo for that accession
     r = requests.get(
         NCBI_EFETCH,
@@ -65,7 +84,7 @@ def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[str]:
                 u = "https://" + u
             urls.append(u)
     
-    time.sleep(0.1)
+    time.sleep(0.2)
     return urls
 
 
@@ -77,8 +96,30 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 #############################
 def download_file_worker(process_id):
     """
-    Download worker (HTTP) with pause/resume support.
+    Worker process that pulls (url, relative_path) tasks and downloads via HTTP,
+    with pause/resume support driven by a shared `download_process_status` flag.
+
+    Parameters
+    ----------
+    process_id : int
+        Index into `download_process_status` that controls whether this worker
+        is active (1) or paused (0).
+
+    Side Effects
+    ------------
+    - Pops tasks off the global `download_tasks` list until empty.
+    - Writes partial data to `download_dir/relative_path`, resuming via HTTP Range
+      headers if interrupted.
+    - Updates `transfer_file_offsets[relative_path]` as bytes accrue.
+    - Increments `download_complete` when a file finishes.
+    - Logs progress, errors, and re-queues on pause or error.
+
+    Exceptions
+    ----------
+    Any exception during download is caught; on “Download paused by optimizer” it
+    re-queues the task, otherwise it logs the error and re-queues if incomplete.
     """
+
     logger.info(f"[Download #{process_id}] Worker starting")
     while True:
         if download_process_status[process_id] == 0:
@@ -91,7 +132,7 @@ def download_file_worker(process_id):
         except IndexError:
             return
 
-        local_temp = os.path.join(tmpfs_dir, relative_path)
+        local_temp = os.path.join(download_dir, relative_path)
         os.makedirs(os.path.dirname(local_temp), exist_ok=True)
 
         # Resume from previous offset if any
@@ -111,10 +152,10 @@ def download_file_worker(process_id):
 
             for chunk in resp.iter_content(chunk_size=chunk_size):
                 # Throttle if tmpfs is low on space
-                _, free_now = available_space(tmpfs_dir)
+                _, free_now = available_space(download_dir)
                 while free_now * 1024 * 1024 <= (len(chunk) + chunk_size):
                     time.sleep(0.5)
-                    _, free_now = available_space(tmpfs_dir)
+                    _, free_now = available_space(download_dir)
 
                 # Pause if optimizer has set this worker to 0
                 if download_process_status[process_id] == 0:
@@ -127,10 +168,8 @@ def download_file_worker(process_id):
 
             # Finished download
             os.close(fd); fd = None
-            with transfer_complete.get_lock():
-                transfer_complete.value += 1
-            mQueue.append(relative_path)
-            completed_tasks.append((url, relative_path))
+            with download_complete.get_lock():
+                download_complete.value += 1
             logger.info(f"[Download #{process_id}] Completed {relative_path}")
 
         except Exception as e:
@@ -156,6 +195,21 @@ def download_file_worker(process_id):
 # Reporting throughput
 #############################
 def report_network_throughput():
+    """
+    Continuously logs per-second and cumulative throughput (Mbps) to both stdout
+    and a timestamped CSV file.
+
+    Waits for `start.value` to be set, then every ~1 s:
+     - Computes current and average throughput from `transfer_file_offsets`.
+     - Appends a row to `log_download_<timestamp>.csv`.
+     - Stops when `transfer_done.value == 1` or 1000s of zero-throughput.
+
+    Side Effects
+    ------------
+    - Writes CSV to working directory.
+    - Logs info-level messages via `logger.info`.
+    - Updates `transfer_done.value` to 1 if persistent zero throughput.
+    """
     previous_total, previous_time = 0, 0
     t = time.time()
     fname = f'log_download_{datetime.datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S")}.csv'
@@ -188,11 +242,32 @@ def report_network_throughput():
 # Optimizer functions
 #############################
 def download_probing(params):
-    # Probing for download concurrency. Uses network throughput from downloaded bytes.
+    """
+    Probe function for the optimizer: toggles worker concurrency, waits, then
+    computes a “score” = –(throughput / k^C) for the current concurrency.
+
+    Parameters
+    ----------
+    params : List[int]
+        A one-element list whose first item is the desired concurrency level.
+
+    Returns
+    -------
+    int
+        A negative score (so that optimizers which minimize will maximize actual utility).
+    exit_signal
+        If `transfer_done.value == 1`, returns the sentinel from `search.exit_signal`.
+
+    Side Effects
+    ------------
+    - Sets `download_process_status[i] = 1` for the first `C` workers, else 0.
+    - Sleeps for `probing_time` seconds (minus a small epsilon).
+    - Reads `throughput_logs` and `configurations["K"]`.
+    - Logs throughput and score.
+    """
     if transfer_done.value == 1:
         return exit_signal
     params = [1 if x < 1 else int(np.round(x)) for x in params]
-    # params = [1 for x in params]
     logger.info("Download -- Probing Parameters: " + str(params))
     for i in range(len(download_process_status)):
         download_process_status[i] = 1 if i < params[0] else 0
@@ -200,7 +275,6 @@ def download_probing(params):
     n_time = time.time() + probing_time - 1.05
     while time.time() < n_time and transfer_done.value == 0:
         time.sleep(0.1)
-    # thrpt = np.mean(throughput_logs[-2:]) if len(throughput_logs) > 2 else 0
     thrpt = np.mean(throughput_logs[-(probing_time-1):]) if len(throughput_logs) > (probing_time-1) else 0
     K = float(configurations["K"])
     cc_impact_nl = K ** params[0]
@@ -213,6 +287,24 @@ def download_probing(params):
         return score_value
 
 def run_download_optimizer(probing_func):
+    """
+    Drives the selected optimization loop (gradient or Bayesian) to adjust
+    concurrency parameters over time.
+
+    Parameters
+    ----------
+    probing_func : Callable
+        The function (e.g. `download_probing`) that the optimizer will call
+        to evaluate a given concurrency setting.
+
+    Side Effects
+    ------------
+    - Blocks until `start.value` is nonzero.
+    - Launches either `gradient_opt_fast` or `base_optimizer` using
+      `configurations["method"]`.
+    - Repeatedly calls `probing_func` to refine its suggestion.
+    - Logs optimizer start and progress.
+    """
     while start.value == 0:
         time.sleep(0.1)
     params = [2]
@@ -231,12 +323,28 @@ def run_download_optimizer(probing_func):
 # Graceful exit handler
 #############################
 def graceful_exit(signum=None, frame=None):
+    """
+    Signal handler for SIGINT/SIGTERM that stops all activity and cleans up.
+
+    Parameters
+    ----------
+    signum : int, optional
+        The signal number triggering the exit.
+    frame : object, optional
+        The current stack frame.
+
+    Side Effects
+    ------------
+    - Sets `transfer_done.value = 1` to tell other threads to stop.
+    - Copies `download_complete` into `move_complete`.
+    - Logs any cleanup errors.
+    - Calls `sys.exit(1)`.
+    """
     logger.debug(f"Graceful exit triggered: signum={signum}, frame={frame}")
-    print(f"Graceful exit triggered: signum={signum}, frame={frame}")
+    logger.info(f"Graceful exit triggered: signum={signum}, frame={frame}")
     try:
         transfer_done.value = 1
-        move_complete.value = transfer_complete.value
-        shutil.rmtree(tmpfs_dir, ignore_errors=True)
+        move_complete.value = download_complete.value
     except Exception as e:
         logger.error(e)
     sys.exit(1)
@@ -278,54 +386,43 @@ if __name__ == '__main__':
             ]
         )
 
-        parser = argparse.ArgumentParser(
-            description="Parallel ENA SRA/FASTQ downloader"
-        )
-        parser.add_argument("-i","--input",   required=True,
-                             help="Text file: one accession per line.")
-        parser.add_argument("-o","--outdir", default=".",
-                        help="Where to save downloads.")
-        parser.add_argument("--fastq", action="store_true",
-                             help="Use fastq_ftp instead of sra_ftp")
-        args = parser.parse_args()
+    parser = argparse.ArgumentParser(
+        description="Parallel NCBI SRA downloader"
+    )
+    parser.add_argument("-i","--input",   required=True,
+                            help="Text file: one accession per line.")
+    parser.add_argument("-o","--outdir", default=".",
+                    help="Where to save downloads.")
+    parser.add_argument("--fastq", action="store_true",
+                            help="Use fastq_ftp instead of sra_ftp")
+    args = parser.parse_args()
 
 
     # Set configuration parameters
     configurations["cpu_count"] = mp.cpu_count()
     if configurations["thread_limit"] == -1:
         configurations["thread_limit"] = configurations["cpu_count"]
-    # Use the provided "data_dir" as the final destination directory.
-    root_dir = configurations["data_dir"]
-    # root_dir = "/mnt/nvme0n1/dest"
     chunk_size = 1024*1024
     probing_time = configurations["probing_sec"]
 
     # Temporary directory – using shared memory (adjust as needed)
-    tmpfs_dir = f"/dev/shm/data{os.getpid()}/"
-    tmpfs_dir = "/mnt/nvme0n1/dest"
+    download_dir = configurations["download_dir"]
     try:
-        os.makedirs(tmpfs_dir, exist_ok=True)
+        os.makedirs(download_dir, exist_ok=True)
     except Exception as e:
         logger.error(e)
         sys.exit(1)
-    _, free = available_space(tmpfs_dir)
-    memory_limit = min(50, free / 2)
-    # print(memory_limit)
 
     # Shared counters and structures
-    transfer_complete = mp.Value("i", 0)
+    download_complete = mp.Value("i", 0)
     move_complete = mp.Value("i", 0)
     transfer_done = mp.Value("i", 0)
 
     transfer_file_offsets = mp.Manager().dict()  # Bytes downloaded per file.
-    io_file_offsets = mp.Manager().dict()         # Bytes moved per file.
-    throughput_logs = mp.Manager().list()           # Download throughput logs.
-    io_throughput_logs = mp.Manager().list()        # I/O throughput logs.
-    mQueue = mp.Manager().list()         # Queue for files ready to be moved.
+    throughput_logs = mp.Manager().list() # Download throughput logs.
     download_tasks = mp.Manager().list() # List of FTP download tasks.
-    completed_tasks = mp.Manager().list() # List of FTP download tasks.
 
-    # Read accessions and build download_tasks from ENA:
+    # Read accessions and build download_tasks from NCBI:
     with open(args.input) as f:
         accs = [l.strip() for l in f if l.strip()]
     field = "fastq_ftp" if args.fastq else "sra_ftp"
@@ -333,23 +430,19 @@ if __name__ == '__main__':
         try:
             urls = get_ncbi_urls(acc, field)
         except Exception as e:
-            logger.error(f"ENA lookup failed for {acc}: {e}")
+            logger.error(f"NCBI lookup failed for {acc}: {e}")
             continue
         for url in urls:
             # task: (url, filename)
             download_tasks.append((url, os.path.basename(url)))
 
-    all_tasks = []
-    for task in download_tasks:
-        all_tasks.append(task)
+    initial_task_count = len(download_tasks)
 
-    logger.info(f"Total files to download: {len(download_tasks)}")
     logger.info(f"Total files to download: {len(download_tasks)}: {download_tasks}")
     
     num_workers = len(download_tasks)
     # Two sets of process status arrays:
     download_process_status = mp.Array("i", [0 for _ in range(num_workers)])
-    io_process_status = mp.Array("i", [0 for _ in range(num_workers)])
 
     # Start download workers.
     download_workers = [mp.Process(target=download_file_worker, args=(i,)) for i in range(num_workers)]
@@ -366,7 +459,7 @@ if __name__ == '__main__':
     download_optimizer_thread.start()
 
     # Wait until all download tasks have been handled.
-    while len(all_tasks) != len(completed_tasks):
+    while initial_task_count != download_complete.value:
         time.sleep(0.1)
     # Mark downloads as done.
     transfer_done.value = 1
@@ -379,6 +472,5 @@ if __name__ == '__main__':
             p.terminate()
             p.join(timeout=0.1)
 
-    shutil.rmtree(tmpfs_dir, ignore_errors=True)
     logger.info("Transfer Completed!")
     sys.exit(0)

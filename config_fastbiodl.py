@@ -1,5 +1,5 @@
 configurations = {
-    "data_dir": "dest/",
+    "download_dir": "fastbiodl_downloads/",
     "method": "gradient", # options: [gradient, bayes]
     "bayes": {
         "initial_run": 3,
