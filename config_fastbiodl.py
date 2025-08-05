@@ -1,5 +1,5 @@
 configurations = {
-    "download_dir": "fastbiodl_downloads/",
+    "download_dir": "/mnt/nvme0n1/fastbiodl_downloads/",
     "method": "gradient", # options: [gradient, bayes]
     "bayes": {
         "initial_run": 3,

@@ -240,7 +240,6 @@ def run_download_optimizer(probing_func):
 #############################
 def graceful_exit(signum=None, frame=None):
     logger.debug(f"Graceful exit triggered: signum={signum}, frame={frame}")
-    print(f"Graceful exit triggered: signum={signum}, frame={frame}")
     try:
         transfer_done.value = 1
         move_complete.value = transfer_complete.value
@@ -321,15 +320,11 @@ if __name__ == '__main__':
     configurations["cpu_count"] = mp.cpu_count()
     if configurations["thread_limit"] == -1:
         configurations["thread_limit"] = configurations["cpu_count"]
-    # Use the provided "data_dir" as the final destination directory.
-    root_dir = configurations["data_dir"]
     chunk_size = 1024*1024
     probing_time = configurations["probing_sec"]
-    io_limit = int(configurations["io_limit"]) if ("io_limit" in configurations and configurations["io_limit"] is not None) else -1
 
     # Temporary directory – using shared memory (adjust as needed)
-    tmpfs_dir = f"/dev/shm/data{os.getpid()}/"
-    tmpfs_dir = "/mnt/nvme0n1/dest"
+    tmpfs_dir = configurations["data_dir"]
     try:
         os.makedirs(tmpfs_dir, exist_ok=True)
     except Exception as e:
@@ -337,7 +332,6 @@ if __name__ == '__main__':
         sys.exit(1)
     _, free = available_space(tmpfs_dir)
     memory_limit = min(50, free / 2)
-    # print(memory_limit)
 
     # Shared counters and structures
     transfer_complete = mp.Value("i", 0)
