@@ -68,7 +68,7 @@ def download_file_worker(process_id):
         except IndexError:
             break
 
-        local_temp = os.path.join(tmpfs_dir, relative_path)
+        local_temp = os.path.join(download_dir, relative_path)
         os.makedirs(os.path.dirname(local_temp), exist_ok=True)
 
         # 3) determine resume offset
@@ -91,10 +91,10 @@ def download_file_worker(process_id):
                     break  # EOF
 
                 # 5a) throttle on low tmpfs space
-                _, free_now = available_space(tmpfs_dir)
+                _, free_now = available_space(download_dir)
                 while free_now*1024*1024 <= len(chunk) + chunk_size:
                     time.sleep(0.5)
-                    _, free_now = available_space(tmpfs_dir)
+                    _, free_now = available_space(download_dir)
 
                 # 5b) pause if optimizer tells us to
                 if download_process_status[process_id] == 0:
@@ -115,7 +115,6 @@ def download_file_worker(process_id):
             with transfer_complete.get_lock():
                 transfer_complete.value += 1
 
-            mQueue.append(relative_path)
             completed_tasks.append((remote_file, relative_path))
             logger.info(f"[Download #{process_id}] Completed {relative_path}")
 
@@ -243,7 +242,7 @@ def graceful_exit(signum=None, frame=None):
     try:
         transfer_done.value = 1
         move_complete.value = transfer_complete.value
-        shutil.rmtree(tmpfs_dir, ignore_errors=True)
+        shutil.rmtree(download_dir, ignore_errors=True)
     except Exception as e:
         logger.error(e)
     sys.exit(1)
@@ -323,14 +322,13 @@ if __name__ == '__main__':
     chunk_size = 1024*1024
     probing_time = configurations["probing_sec"]
 
-    # Temporary directory – using shared memory (adjust as needed)
-    tmpfs_dir = configurations["data_dir"]
+    download_dir = configurations["download_dir"]
     try:
-        os.makedirs(tmpfs_dir, exist_ok=True)
+        os.makedirs(download_dir, exist_ok=True)
     except Exception as e:
         logger.error(e)
         sys.exit(1)
-    _, free = available_space(tmpfs_dir)
+    _, free = available_space(download_dir)
     memory_limit = min(50, free / 2)
 
     # Shared counters and structures
@@ -339,10 +337,7 @@ if __name__ == '__main__':
     transfer_done = mp.Value("i", 0)
 
     transfer_file_offsets = mp.Manager().dict()  # Bytes downloaded per file.
-    io_file_offsets = mp.Manager().dict()         # Bytes moved per file.
     throughput_logs = mp.Manager().list()           # Download throughput logs.
-    io_throughput_logs = mp.Manager().list()        # I/O throughput logs.
-    mQueue = mp.Manager().list()         # Queue for files ready to be moved.
     download_tasks = mp.Manager().list() # List of FTP download tasks.
     completed_tasks = mp.Manager().list() # List of FTP download tasks.
 
@@ -389,6 +384,6 @@ if __name__ == '__main__':
             p.terminate()
             p.join(timeout=0.1)
 
-    shutil.rmtree(tmpfs_dir, ignore_errors=True)
+    shutil.rmtree(download_dir, ignore_errors=True)
     logger.info("Transfer Completed!")
     sys.exit(0)
