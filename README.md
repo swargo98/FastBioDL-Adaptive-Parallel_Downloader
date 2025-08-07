@@ -7,6 +7,8 @@ It reproduces all experiments from our PDSW 25 Submission:
 > **Adaptive Parallel Downloader for Large Genomic Datasets**  
 > Rasman M. Swargo *et al.*, PDSW/SC 25
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16757680.svg)](https://doi.org/10.5281/zenodo.16757680)
+
 ---
 
 ## Quick start
