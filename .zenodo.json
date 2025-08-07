@@ -1,0 +1,35 @@
+{
+    "title": "FastBioDL: Adaptive Parallel Downloader for Large Genomic Datasets",
+    "description": "Source code and evaluation scripts for FastBioDL, a parallel downloader that frames large-scale genomic data retrieval as an online optimisation problem. A gradient-descent controller dynamically tunes the number of concurrent HTTP/FTP streams, delivering up to 4× higher throughput on public SRA/ENA mirrors and up to 2.1× speed-ups on 20 Gbps testbeds compared with static-concurrency tools.",  // :contentReference[oaicite:0]{index=0}
+    "creators": [
+      {
+        "name": "Swargo, Rasman Mubtasim",
+        "orcid": "0009-0002-2725-5161",
+        "affiliation": "Missouri University of Science and Technology"
+      },
+      {
+        "name": "Arslan, Engin",
+        "affiliation": "Meta"
+      },
+      {
+        "name": "Arifuzzaman, Md",
+        "affiliation": "Missouri University of Science and Technology"
+      }
+    ],
+    "license": "MIT",
+    "keywords": [
+      "genomics",
+      "data-transfer",
+      "adaptive concurrency",
+      "parallel downloader",
+      "HPC"
+    ],
+    "related_identifiers": [
+      {
+        "identifier": "https://github.com/swargo98/FastBioDL-Adaptive-Parallel_Downloader",
+        "relation": "isSupplementTo",
+        "scheme": "url"
+      }
+    ]
+  }
+  
