@@ -1,6 +1,7 @@
 {
     "title": "FastBioDL: Adaptive Parallel Downloader for Large Genomic Datasets",
-    "description": "Source code and evaluation scripts for FastBioDL, a parallel downloader that frames large-scale genomic data retrieval as an online optimisation problem. A gradient-descent controller dynamically tunes the number of concurrent HTTP/FTP streams, delivering up to 4× higher throughput on public SRA/ENA mirrors and up to 2.1× speed-ups on 20 Gbps testbeds compared with static-concurrency tools.",  // :contentReference[oaicite:0]{index=0}
+    "upload_type": "software",
+    "description": "Source code and evaluation scripts for FastBioDL, a parallel downloader that frames large-scale genomic data retrieval as an online optimisation problem. A gradient-descent controller dynamically tunes the number of concurrent HTTP/FTP streams, delivering up to 4× higher throughput on public SRA/ENA mirrors and up to 2.1× speed-ups on 20 Gbps testbeds compared with static-concurrency tools.",
     "creators": [
       {
         "name": "Swargo, Rasman Mubtasim",
