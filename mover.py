@@ -126,7 +126,7 @@ def run_optimizer(probing_func):
     params = [2]
     if configurations["method"].lower() == "gradient":
         logger.info("Running Gradient Optimization .... ")
-        params = gradient_opt_fast(configurations["thread_limit"], probing_func, logger)
+        params = gradient_opt_fast(max(1, (transfer_complete.value - move_complete.value)), probing_func, logger)
 
     elif configurations["method"].lower() == "probe":
         logger.info("Running a fixed configurations Probing .... ")

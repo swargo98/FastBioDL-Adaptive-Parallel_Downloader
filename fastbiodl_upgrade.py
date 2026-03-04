@@ -621,8 +621,8 @@ async def download_worker_async(
     # Create persistent session with connection pooling
     timeout = aiohttp.ClientTimeout(total=3600, connect=60, sock_read=300)
     connector = aiohttp.TCPConnector(
-        limit=max_segments * 2,  # Allow concurrent segment downloads
-        limit_per_host=max_segments * 2,
+        limit=max_segments,
+        limit_per_host=max_segments,
         ttl_dns_cache=300,
         enable_cleanup_closed=True
     )
@@ -849,7 +849,7 @@ def run_download_optimizer(probing_func, throughput_logs: deque, throughput_lock
     
     if method == "gradient":
         logging.info("Running Gradient Optimization for Download....")
-        params = gradient_opt_fast(configurations["thread_limit"], lambda p: probing_func(p, throughput_logs, throughput_lock), logging)
+        params = gradient_opt_fast(max(1, (files_to_download.value - download_complete.value)), lambda p: probing_func(p, throughput_logs, throughput_lock), logging)
     else:
         logging.info("Running Bayesian Optimization for Download....")
         params = base_optimizer(configurations, lambda p: probing_func(p, throughput_logs, throughput_lock), logging)
@@ -928,9 +928,9 @@ if __name__ == '__main__':
                         help="Where to save downloads.")
     parser.add_argument("--fastq", action="store_true",
                         help="Use fastq_ftp instead of sra_ftp")
-    parser.add_argument("--segment-size", type=int, default=10,
+    parser.add_argument("--segment-size", type=int, default=512,
                         help="Segment size in MB (default: 10)")
-    parser.add_argument("--max-segments", type=int, default=16,
+    parser.add_argument("--max-segments", type=int, default=8,
                         help="Max segments per file (default: 8)")
     parser.add_argument("--max-retries", type=int, default=3,
                         help="Max retry attempts per task (default: 3)")
@@ -1002,6 +1002,7 @@ if __name__ == '__main__':
             task_count += 1
 
     initial_task_count = task_count
+    files_to_download = mp.Value("i", task_count)
     logging.info(f"Total files to download: {initial_task_count}")
     
     if initial_task_count == 0:

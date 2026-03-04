@@ -303,21 +303,47 @@ def _conversion_worker(
     }
 
     for fq, proc in procs.items():
+        gz_path = fq + ".gz"
+        prev_gz_size = 0
+        deadline = time.time() + 3600
         try:
-            proc.wait(timeout=3600)
+            # Poll the growing .gz file every second so byte_counter reflects
+            # live progress rather than a single lump-sum update at job end.
+            # This is what makes the conversion throughput reporter show non-zero
+            # MB/s while pigz is running instead of staying at 0.0 MB/s.
+            while True:
+                try:
+                    proc.wait(timeout=1.0)
+                    # pigz finished — capture any remaining bytes
+                    if os.path.exists(gz_path):
+                        cur_gz_size = os.path.getsize(gz_path)
+                        delta = cur_gz_size - prev_gz_size
+                        if delta > 0:
+                            with byte_counter.get_lock():
+                                byte_counter.value += delta
+                    break  # exit polling loop
+                except subprocess.TimeoutExpired:
+                    if time.time() > deadline:
+                        proc.kill()
+                        raise subprocess.TimeoutExpired(proc.args, 3600)
+                    # Drip incremental bytes into the shared counter
+                    if os.path.exists(gz_path):
+                        cur_gz_size = os.path.getsize(gz_path)
+                        delta = cur_gz_size - prev_gz_size
+                        if delta > 0:
+                            with byte_counter.get_lock():
+                                byte_counter.value += delta
+                            prev_gz_size = cur_gz_size
+
             if proc.returncode != 0:
                 err = proc.stderr.read().decode(errors="replace").strip()
                 logging.error(f"[Converter #{job_id}] pigz failed for {fq}: {err}")
                 _cleanup_dir(acc_fastq_dir)
                 result_queue.put((sra_path, [], False))
                 return
-            gz_path = fq + ".gz"
             if os.path.exists(gz_path):
                 fastq_gz_files.append(gz_path)
-                with byte_counter.get_lock():
-                    byte_counter.value += os.path.getsize(gz_path)
         except subprocess.TimeoutExpired:
-            proc.kill()
             logging.error(f"[Converter #{job_id}] pigz timed out for {fq}")
             _cleanup_dir(acc_fastq_dir)
             result_queue.put((sra_path, [], False))
