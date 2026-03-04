@@ -20,6 +20,9 @@ from typing import List, Tuple, Optional, Dict, Set
 import argparse
 import csv
 import json
+from converter import SRAConverter
+from mover import FileMover
+import queue
 
 NCBI_EFETCH = (
     "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
@@ -228,7 +231,7 @@ class SegmentedDownloader:
         Returns (segment_id, bytes_written).
         Validates that returned range matches request and all bytes received.
         """
-        chunk_size = 128 * 1024  # 128KB chunks
+        chunk_size = 1024 * 1024  # 128KB chunks
         bytes_written = 0
         current_offset = start
         
@@ -427,8 +430,7 @@ class SegmentedDownloader:
             with self.active_connections.get_lock():
                 self.active_connections.value += num_connections
         
-        # Open file descriptor for .part file
-        fd = os.open(self.part_path, os.O_CREAT | os.O_RDWR)
+        fd = None
         
         # NOTE: We do NOT use ftruncate here because it breaks resume logic.
         # ftruncate would make getsize() return file_size immediately (file full of holes),
@@ -436,6 +438,8 @@ class SegmentedDownloader:
         # We accept potential fragmentation instead of silent corruption.
         
         try:
+            # Open file descriptor for .part file
+            fd = os.open(self.part_path, os.O_CREAT | os.O_RDWR)
             # Download all remaining segments concurrently
             tasks = [
                 self.download_segment_streaming(i, start, end, fd)
@@ -500,7 +504,7 @@ class SegmentedDownloader:
         Fallback single-connection download with resume support.
         Returns (success, was_paused, num_connections) tuple.
         """
-        chunk_size = 128 * 1024
+        chunk_size = 1024 * 1024
         num_connections = 1
         
         # Update active connections counter
@@ -540,11 +544,12 @@ class SegmentedDownloader:
                                 raise Exception(f"Expected 200 OK, got {resp.status}")
                             initial_offset = 0
                         
-                        fd = os.open(self.part_path, os.O_CREAT | os.O_RDWR)
-                        os.lseek(fd, initial_offset, os.SEEK_SET)
+                        fd = None
                         current_offset = initial_offset
                         
                         try:
+                            fd = os.open(self.part_path, os.O_CREAT | os.O_RDWR)
+                            os.lseek(fd, initial_offset, os.SEEK_SET)
                             async for chunk in resp.content.iter_chunked(chunk_size):
                                 if download_process_status[self.process_id] == 0:
                                     raise asyncio.CancelledError("Download paused")
@@ -605,7 +610,8 @@ async def download_worker_async(
     active_connections: mp.Value,
     segment_size: int = 10 * 1024 * 1024,
     max_segments: int = 8,
-    max_retries: int = 3
+    max_retries: int = 3,
+    processing_queue: mp.Queue = None
 ):
     """
     Async worker that processes download tasks from a queue with connection pooling.
@@ -638,11 +644,14 @@ async def download_worker_async(
                 # Use blocking get with timeout (can't use async, so use get_nowait with better sleep)
                 task_data = task_queue.get(timeout=0.1)
                 url, relative_path, retry_count = task_data
-            except:
-                # No tasks available or timeout
+            except queue.Empty:
                 if transfer_done.value == 1:
                     break
-                await asyncio.sleep(0.1)  # Brief sleep before retry
+                await asyncio.sleep(0.1)
+                continue
+            except Exception as e:
+                logging.error(f"Worker {process_id} unexpected error: {e}")
+                await asyncio.sleep(0.1)
                 continue
             
             local_path = os.path.join(download_dir, relative_path)
@@ -666,6 +675,8 @@ async def download_worker_async(
                 if success:
                     with download_complete.get_lock():
                         download_complete.value += 1
+                    processing_queue.put(local_path)   # ← hand off to conversion stage
+                    logging.info(f"[Download #{process_id}] Queued for processing: {local_path}")
                     task_queue.task_done()
                 elif was_paused:
                     # Paused by optimizer - requeue with SAME retry count
@@ -698,7 +709,8 @@ def download_file_worker(
     failed_queue: mp.Queue,
     failed_count: mp.Value,
     process_counter: mp.Value,
-    active_connections: mp.Value
+    active_connections: mp.Value,
+    processing_queue
 ):
     """
     Wrapper to run async worker in a sync process.
@@ -716,7 +728,8 @@ def download_file_worker(
         active_connections,
         segment_size, 
         max_segments,
-        max_retries
+        max_retries,
+        processing_queue
     ))
 
 
@@ -911,7 +924,7 @@ if __name__ == '__main__':
     )
     parser.add_argument("-i", "--input", required=True,
                         help="Text file: one accession per line.")
-    parser.add_argument("-o", "--outdir", default=".",
+    parser.add_argument("-o", "--outdir", default="/mnt/nvme0n1/fastbiodl/staging/",
                         help="Where to save downloads.")
     parser.add_argument("--fastq", action="store_true",
                         help="Use fastq_ftp instead of sra_ftp")
@@ -934,7 +947,14 @@ if __name__ == '__main__':
     probing_time = configurations.get("probing_sec", 5)
 
     # Download directory - use outdir from args
+    # REPLACE this block:
     download_dir = args.outdir
+
+    # WITH:
+    tmpfs_dir    = f"/mnt/nvme0n1/fastbiodl_{os.getpid()}/"
+    download_dir = tmpfs_dir                # downloads land here
+    root_dir     = args.outdir              # final destination (NVMe / lustre / etc.)
+    os.makedirs(tmpfs_dir, exist_ok=True)
     
     try:
         os.makedirs(download_dir, exist_ok=True)
@@ -956,6 +976,8 @@ if __name__ == '__main__':
     # Use JoinableQueue for tasks
     download_queue = mp.JoinableQueue()
     failed_queue = mp.Queue()  # Track failed downloads
+    processing_queue = mp.Queue()
+    move_queue = mp.Queue()
 
     # Read accessions and build download tasks
     with open(args.input) as f:
@@ -996,13 +1018,34 @@ if __name__ == '__main__':
     download_workers = [
         mp.Process(
             target=download_file_worker, 
-            args=(i, download_queue, failed_queue, failed_count, process_counters[i], active_connections)
+            args=(i, download_queue, failed_queue, failed_count, process_counters[i], active_connections, processing_queue)
         ) 
         for i in range(num_workers)
     ]
     for p in download_workers:
         p.daemon = True
         p.start()
+
+    converter = SRAConverter(
+        processing_queue=processing_queue,
+        move_queue=move_queue,
+        work_dir=tmpfs_dir,
+        nvme_device="nvme0n1",
+        threads_per_job=configurations.get("conversion_threads", 4),
+        cpu_threshold=configurations.get("cpu_threshold", 85.0),
+        nvme_threshold=configurations.get("nvme_threshold", 80.0),
+        max_jobs=configurations.get("max_conversion_jobs", None),
+    )
+    converter.start()
+
+    configurations["thread_limit"] = configurations.get("max_cc", mp.cpu_count())
+    mover = FileMover(
+        move_queue=move_queue,
+        tmpfs_dir=tmpfs_dir,
+        root_dir=root_dir,
+        config=configurations,
+    )
+    mover.start()
 
     # Start reporting and optimization
     start = mp.Value("d", time.time())
@@ -1025,6 +1068,13 @@ if __name__ == '__main__':
     
     transfer_done.value = 1
     logging.info(f"Download Tasks Completed! Success: {download_complete.value}, Failed: {failed_count.value}")
+    processing_queue.put(None)       # ← sentinel to unblock dispatcher
+    converter.stop(timeout=7200.0)     # ← wait for in-flight jobs to finish
+    logging.info(f"Conversion complete: {converter.converted_count} ok, {converter.failed_count} failed")
+
+    move_queue.put(None)          # sentinel → FileMover feeder exits, sets transfer_done
+    mover.stop(timeout=7200.0)   # waits for all .fastq.gz to land on root_dir
+    logging.info("All files moved to final destination.")
     
     # Report failed downloads
     failed_list = []
