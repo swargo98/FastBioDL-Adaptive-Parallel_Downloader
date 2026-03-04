@@ -1071,6 +1071,31 @@ if __name__ == '__main__':
     processing_queue.put(None)       # ← sentinel to unblock dispatcher
     converter.stop(timeout=7200.0)     # ← wait for in-flight jobs to finish
     logging.info(f"Conversion complete: {converter.converted_count} ok, {converter.failed_count} failed")
+    
+    # Drain any stale sentinels or leftovers from processing_queue.
+    # With the Bug #6 fix in converter.py (dispatcher now exits via sentinel
+    # before stop() sets _stop_event), this should always be empty.  Log a
+    # critical error if anything is found so it is visible without silently
+    # shipping corrupt data downstream.
+    unprocessed_count = 0
+    while True:
+        try:
+            leftover = processing_queue.get_nowait()
+            if leftover is not None:  # sentinel is None, skip it
+                logging.critical(
+                    f"[Bug #6] Unprocessed .sra still in queue after converter.stop(): "
+                    f"{leftover} — NOT moved (would be raw/unconverted). "
+                    f"File left on disk for manual inspection."
+                )
+                unprocessed_count += 1
+        except queue.Empty:
+            break
+
+    if unprocessed_count > 0:
+        logging.critical(
+            f"[Bug #6] {unprocessed_count} file(s) were NOT converted. "
+            f"This indicates a bug — please report."
+        )
 
     move_queue.put(None)          # sentinel → FileMover feeder exits, sets transfer_done
     mover.stop(timeout=7200.0)   # waits for all .fastq.gz to land on root_dir

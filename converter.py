@@ -57,7 +57,7 @@ import logging
 import subprocess
 import datetime
 import multiprocessing as mp
-from threading import Thread, Lock
+from threading import Thread, Lock, Event
 from collections import deque
 from typing import Optional
 
@@ -218,7 +218,7 @@ def _conversion_worker(
     Pushes (sra_path, [fastq_gz_paths], success) to result_queue when done.
     Increments byte_counter as output files grow (polled during compression).
     """
-    accession = os.path.splitext(os.path.basename(sra_path))[0]
+    accession = os.path.basename(sra_path).split(".")[0]
     acc_fastq_dir = os.path.join(fastq_dir, accession)
     # Each job gets its own isolated temp directory — prevents filename
     # collisions between concurrent fasterq-dump processes.
@@ -460,6 +460,10 @@ class SRAConverter:
 
         # Lifecycle
         self._stop_event      = mp.Event()   # mp.Event so workers can observe it
+        # Signals that the dispatcher thread has exited naturally (via sentinel).
+        # stop() waits for this before setting _stop_event so that a file waiting
+        # at the AdmissionGate is never interrupted mid-queue-drain (Bug #6).
+        self._dispatcher_done = Event()      # threading.Event — intra-process only
         self._threads         = []
         self._worker_procs    = []
         self._job_id_counter  = 0
@@ -506,12 +510,29 @@ class SRAConverter:
         management threads with a short timeout, then immediately terminated any
         living worker procs.  That kills a 2-hour fasterq-dump after 30 s.
 
+        FIX [Bug #6]: Do NOT set _stop_event immediately.  The dispatcher exits
+        on its own once it receives the None sentinel placed by the caller.  If
+        _stop_event is raised while the dispatcher is blocked inside
+        AdmissionGate.admit(), the in-flight item gets requeued but never
+        re-processed, effectively dropping it.
+
         New behaviour:
-          1. Set _stop_event so the dispatcher stops accepting new work.
-          2. Busy-wait (up to timeout) for _active_jobs to drain to 0 —
-             i.e. all in-flight conversions have posted their result.
-          3. Only then join the management threads and reap worker procs.
+          1. Wait (up to timeout) for the dispatcher to exit naturally via the
+             sentinel.  _dispatcher_done is set by _dispatcher_loop when done.
+          2. Only after the dispatcher has fully drained do we set _stop_event
+             so the result-collector loop knows to stop waiting for new results.
+          3. Busy-wait for _active_jobs to drain to 0.
+          4. Join management threads and reap worker procs.
         """
+        # Step 1 — let the dispatcher finish on its own (sentinel-driven exit).
+        if not self._dispatcher_done.wait(timeout=timeout):
+            logging.warning(
+                f"[SRAConverter] stop() timed out waiting for dispatcher to finish "
+                f"(timeout={timeout}s) — forcing stop."
+            )
+
+        # Step 2 — NOW it is safe to set _stop_event: the dispatcher has already
+        # exited, so no in-queue item can be stranded in AdmissionGate.admit().
         self._stop_event.set()
 
         # Wait for all in-flight jobs to finish naturally.
@@ -560,6 +581,8 @@ class SRAConverter:
           1. Waits for active_jobs < max_jobs  (hard sanity ceiling)
           2. Waits for AdmissionGate to grant based on CPU + NVMe utilization
         Then spawns a worker process for that job.
+        Sets _dispatcher_done when it exits so stop() knows it is safe to
+        raise _stop_event (Bug #6 fix).
         """
         gate = AdmissionGate(
             nvme_device=self.nvme_device,
@@ -579,11 +602,15 @@ class SRAConverter:
 
             if sra_path is None:            # sentinel value — no more files
                 logging.info("[SRAConverter] Received sentinel, dispatcher exiting")
+                self._dispatcher_done.set()  # unblock stop() (Bug #6 fix)
                 break
 
             # FIX [My #3]: skip any file that is not a plain .sra — e.g. when
             # the pipeline is run with --fastq and FASTQ tarballs land here.
-            if not sra_path.endswith(".sra"):
+            import re
+            SRA_FILE_RE = re.compile(r'\.(sra|lite\.\d+)$')
+
+            if not SRA_FILE_RE.search(os.path.basename(sra_path)):
                 logging.warning(
                     f"[SRAConverter] Skipping non-SRA file (expected .sra): {sra_path}"
                 )
@@ -594,14 +621,22 @@ class SRAConverter:
 
             # ── (b) sanity ceiling — wait if too many jobs already running ──
             while self._active_jobs.value >= self.max_jobs:
-                if self._stop_event.is_set():
-                    return
                 time.sleep(0.5)
 
             # ── (c) admission gate — wait for CPU + NVMe headroom ──────────
-            granted = gate.admit(stop_event=self._stop_event)
+            # The dispatcher only exits via the sentinel from now on, so
+            # pass stop_event=None — we no longer want the gate to abort
+            # mid-drain (that was the original Bug #6 root cause).
+            granted = gate.admit(stop_event=None)
             if not granted:
-                return
+                # Should never happen now that we pass stop_event=None,
+                # but keep as a last-resort safety net.
+                logging.warning(
+                    f"[SRAConverter] AdmissionGate returned False unexpectedly for "
+                    f"{os.path.basename(sra_path)} — requeueing"
+                )
+                self.processing_queue.put(sra_path)
+                continue
 
             logging.info(
                 f"[SRAConverter] Admission granted "
@@ -642,6 +677,10 @@ class SRAConverter:
                 f"[SRAConverter] Job #{job_id} started for {os.path.basename(sra_path)} "
                 f"(active jobs: {self._active_jobs.value})"
             )
+
+        # Reached only if _stop_event fired before a sentinel arrived (e.g. SIGINT).
+        # Make sure stop() doesn't hang indefinitely waiting for _dispatcher_done.
+        self._dispatcher_done.set()
 
     def _result_collector_loop(self):
         """
