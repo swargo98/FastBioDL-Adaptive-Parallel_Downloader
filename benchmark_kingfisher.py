@@ -43,9 +43,9 @@ Kingfisher reference
 Usage
 -----
   python benchmark_kingfisher.py -i accessions.txt \\
-      --sra-dir   /mnt/disk/benchmark/kingfisher/sra \\
+      --sra-dir   kingfisher/sra \\
       --fastq-dir /mnt/nvme0n1/benchmark/kingfisher/fastq \\
-      --out-dir   /mnt/disk/benchmark/kingfisher/output \\
+      --out-dir   kingfisher/output \\
       --threads 8
 
 Output
@@ -141,13 +141,13 @@ def main():
     parser.add_argument("-i", "--input", required=True,
                         help="Text file with one SRA accession per line")
     parser.add_argument("--sra-dir",
-                        default="/mnt/disk/benchmark/kingfisher/sra",
+                        default="kingfisher/sra",
                         help="Destination for kingfisher get output (DISK)")
     parser.add_argument("--fastq-dir",
                         default="/mnt/nvme0n1/benchmark/kingfisher/fastq",
                         help="Destination for converted .fastq files (NVMe recommended)")
     parser.add_argument("--out-dir",
-                        default="/mnt/disk/benchmark/kingfisher/output",
+                        default="kingfisher/output",
                         help="Final destination for .fastq.gz (DISK)")
     parser.add_argument("--threads", type=int, default=8,
                         help="Download, conversion, and pigz thread count")
