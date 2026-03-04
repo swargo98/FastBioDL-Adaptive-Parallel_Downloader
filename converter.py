@@ -246,6 +246,7 @@ def _conversion_worker(
         sra_path,
     ]
 
+    t_fasterq_start = time.time()   # ← benchmark timing: fasterq-dump started
     try:
         proc = subprocess.run(
             fasterq_cmd,
@@ -258,24 +259,25 @@ def _conversion_worker(
             logging.error(f"[Converter #{job_id}] fasterq-dump failed for {accession}: {err}")
             _cleanup_dir(job_temp_dir)
             _cleanup_dir(acc_fastq_dir)
-            result_queue.put((sra_path, [], False))
+            result_queue.put((sra_path, [], False, t_fasterq_start, 0.0, 0.0, 0.0))
             return
     except subprocess.TimeoutExpired:
         logging.error(f"[Converter #{job_id}] fasterq-dump timed out for {accession}")
         _cleanup_dir(job_temp_dir)
         _cleanup_dir(acc_fastq_dir)
-        result_queue.put((sra_path, [], False))
+        result_queue.put((sra_path, [], False, t_fasterq_start, 0.0, 0.0, 0.0))
         return
     except FileNotFoundError:
         logging.error(f"[Converter #{job_id}] fasterq-dump not found in PATH")
         _cleanup_dir(job_temp_dir)
         _cleanup_dir(acc_fastq_dir)
-        result_queue.put((sra_path, [], False))
+        result_queue.put((sra_path, [], False, t_fasterq_start, 0.0, 0.0, 0.0))
         return
 
     # Temp dir is now empty (fasterq-dump cleans its own scratch) — remove it.
     _cleanup_dir(job_temp_dir)
 
+    t_fasterq_done = time.time()   # ← benchmark timing: fasterq-dump finished
     logging.info(f"[Converter #{job_id}] fasterq-dump done for {accession}, compressing ...")
 
     # ── Step 2: pigz compress each .fastq output ──────────────────────────────
@@ -289,10 +291,11 @@ def _conversion_worker(
         logging.error(
             f"[Converter #{job_id}] No .fastq files found after fasterq-dump for {accession}"
         )
-        result_queue.put((sra_path, [], False))
+        result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, 0.0, 0.0))
         return
 
     fastq_gz_files = []
+    t_pigz_start = time.time()   # ← benchmark timing: pigz started (all jobs launched simultaneously)
     # Launch all pigz processes simultaneously
     procs = {
         fq: subprocess.Popen(
@@ -339,26 +342,29 @@ def _conversion_worker(
                 err = proc.stderr.read().decode(errors="replace").strip()
                 logging.error(f"[Converter #{job_id}] pigz failed for {fq}: {err}")
                 _cleanup_dir(acc_fastq_dir)
-                result_queue.put((sra_path, [], False))
+                result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
                 return
             if os.path.exists(gz_path):
                 fastq_gz_files.append(gz_path)
         except subprocess.TimeoutExpired:
             logging.error(f"[Converter #{job_id}] pigz timed out for {fq}")
             _cleanup_dir(acc_fastq_dir)
-            result_queue.put((sra_path, [], False))
+            result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
             return
         except FileNotFoundError:
             logging.error(f"[Converter #{job_id}] pigz not found in PATH")
             _cleanup_dir(acc_fastq_dir)
-            result_queue.put((sra_path, [], False))
+            result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
             return
 
+    t_pigz_done = time.time()   # ← benchmark timing: all pigz finished
     logging.info(
         f"[Converter #{job_id}] Completed {accession}: "
         f"{[os.path.basename(f) for f in fastq_gz_files]}"
     )
-    result_queue.put((sra_path, fastq_gz_files, True))
+    result_queue.put((sra_path, fastq_gz_files, True,
+                      t_fasterq_start, t_fasterq_done,
+                      t_pigz_start, t_pigz_done))
 
 
 #############################
@@ -472,6 +478,16 @@ class SRAConverter:
         self._byte_counter    = mp.Value("Q", 0)   # unsigned 64-bit
         self._converted_count = mp.Value("i", 0)
         self._failed_count    = mp.Value("i", 0)
+
+        # Benchmark timing: per-phase epoch timestamps aggregated across all jobs.
+        # "first_start" tracks the earliest start (min), "last_done" the latest
+        # end (max).  0.0 means the phase has not been observed yet.
+        # Together they give the true wall-clock span of each phase and let the
+        # caller compute inter-phase overlap.
+        self._t_first_fasterq_start = mp.Value("d", 0.0)
+        self._t_last_fasterq_done   = mp.Value("d", 0.0)
+        self._t_first_pigz_start    = mp.Value("d", 0.0)
+        self._t_last_pigz_done      = mp.Value("d", 0.0)
 
         # Result queue from worker processes → collector
         self._result_queue    = mp.Queue()
@@ -598,6 +614,26 @@ class SRAConverter:
     def failed_count(self) -> int:
         return self._failed_count.value
 
+    @property
+    def t_first_fasterq_start(self) -> float:
+        """Epoch timestamp of the earliest fasterq-dump start across all jobs (0.0 if none yet)."""
+        return self._t_first_fasterq_start.value
+
+    @property
+    def t_last_fasterq_done(self) -> float:
+        """Epoch timestamp of the latest fasterq-dump completion across all jobs (0.0 if none yet)."""
+        return self._t_last_fasterq_done.value
+
+    @property
+    def t_first_pigz_start(self) -> float:
+        """Epoch timestamp of the earliest pigz start across all jobs (0.0 if none yet)."""
+        return self._t_first_pigz_start.value
+
+    @property
+    def t_last_pigz_done(self) -> float:
+        """Epoch timestamp of the latest pigz completion across all jobs (0.0 if none yet)."""
+        return self._t_last_pigz_done.value
+
     # ── Internal loops ──────────────────────────────────────────────────────
 
     def _dispatcher_loop(self):
@@ -718,29 +754,71 @@ class SRAConverter:
         while not self._stop_event.is_set() or self._active_jobs.value > 0:
             # FIX [Img #3]: catch queue.Empty only, not bare Exception.
             try:
-                sra_path, fastq_gz_files, success = self._result_queue.get(timeout=2.0)
+                sra_path, fastq_gz_files, success, \
+                    t_fasterq_start, t_fasterq_done, \
+                    t_pigz_start, t_pigz_done = self._result_queue.get(timeout=2.0)
             except queue.Empty:
                 continue
 
-            self._handle_result(sra_path, fastq_gz_files, success)
+            self._handle_result(sra_path, fastq_gz_files, success,
+                                t_fasterq_start, t_fasterq_done,
+                                t_pigz_start, t_pigz_done)
 
         # FIX [My #5]: drain any results that arrived between the while-loop
         # condition being checked False and this line executing.  Without this
         # drain a result can be silently dropped in the stop-event race window.
         while True:
             try:
-                sra_path, fastq_gz_files, success = self._result_queue.get_nowait()
-                self._handle_result(sra_path, fastq_gz_files, success)
+                sra_path, fastq_gz_files, success, \
+                    t_fasterq_start, t_fasterq_done, \
+                    t_pigz_start, t_pigz_done = self._result_queue.get_nowait()
+                self._handle_result(sra_path, fastq_gz_files, success,
+                                    t_fasterq_start, t_fasterq_done,
+                                    t_pigz_start, t_pigz_done)
             except queue.Empty:
                 break
 
-    def _handle_result(self, sra_path: str, fastq_gz_files: list, success: bool):
+    def _handle_result(self, sra_path: str, fastq_gz_files: list, success: bool,
+                       t_fasterq_start: float = 0.0, t_fasterq_done: float = 0.0,
+                       t_pigz_start: float = 0.0, t_pigz_done: float = 0.0):
         """
         Shared result-processing logic used by both the normal collector loop
         and the post-stop drain.  Extracted to avoid code duplication.
+
+        t_fasterq_start / t_fasterq_done : epoch timestamps bracketing fasterq-dump
+        t_pigz_start    / t_pigz_done    : epoch timestamps bracketing pigz
+
+        Across concurrent jobs we track:
+          _t_first_fasterq_start  — earliest start (min), for overlap calculation
+          _t_last_fasterq_done    — latest  end   (max)
+          _t_first_pigz_start     — earliest start (min)
+          _t_last_pigz_done       — latest  end   (max)
+        0.0 is used as a sentinel meaning "not observed yet".
         """
         with self._active_jobs.get_lock():
             self._active_jobs.value = max(0, self._active_jobs.value - 1)
+
+        # fasterq-dump window ─────────────────────────────────────────────────
+        if t_fasterq_start > 0.0:
+            with self._t_first_fasterq_start.get_lock():
+                prev = self._t_first_fasterq_start.value
+                if prev == 0.0 or t_fasterq_start < prev:
+                    self._t_first_fasterq_start.value = t_fasterq_start
+        if t_fasterq_done > 0.0:
+            with self._t_last_fasterq_done.get_lock():
+                if t_fasterq_done > self._t_last_fasterq_done.value:
+                    self._t_last_fasterq_done.value = t_fasterq_done
+
+        # pigz window ─────────────────────────────────────────────────────────
+        if t_pigz_start > 0.0:
+            with self._t_first_pigz_start.get_lock():
+                prev = self._t_first_pigz_start.value
+                if prev == 0.0 or t_pigz_start < prev:
+                    self._t_first_pigz_start.value = t_pigz_start
+        if t_pigz_done > 0.0:
+            with self._t_last_pigz_done.get_lock():
+                if t_pigz_done > self._t_last_pigz_done.value:
+                    self._t_last_pigz_done.value = t_pigz_done
 
         # FIX [My #1]: hold _procs_lock while iterating and reassigning
         # _worker_procs so the dispatcher cannot append concurrently.

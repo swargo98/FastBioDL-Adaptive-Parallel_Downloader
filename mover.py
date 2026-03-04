@@ -14,6 +14,18 @@ from utils import available_space, get_dir_size, run
 from search import base_optimizer,gradient_opt_fast, exit_signal
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+# ── Output-directory configuration ──────────────────────────────────────────
+# For production runs both tmpfs_dir (staging) and root_dir (final) were
+# historically set to NVMe paths.  For benchmarking we want the final
+# destination on a *spinning-disk* mount so all three tools are measured on
+# the same I/O tier.  Set BENCHMARK_ROOT_DIR to your disk mount and pass it
+# as `root_dir` when constructing FileMover (or via fastbiodl_upgrade.py's
+# --outdir flag).
+#
+#   PRODUCTION : root_dir = "/mnt/nvme0n1/fastbiodl/staging/"
+#   BENCHMARK  : root_dir = "/mnt/disk/benchmark/fastbiodl/output/"
+BENCHMARK_ROOT_DIR = "fastbiodl/output/"
+
 
 def move_file(process_id):
     block_size = chunk_size
@@ -308,130 +320,3 @@ class FileMover:
         logger.info(
             f"[FileMover] Done — moved {move_complete.value}/{transfer_complete.value} files"
         )
-
-
-# if __name__ == '__main__':
-#     signal.signal(signal.SIGINT, graceful_exit)
-#     signal.signal(signal.SIGTERM, graceful_exit)
-
-#     log_FORMAT = '%(created)f -- %(levelname)s: %(message)s'
-#     log_file = f'logs/receiver.{datetime.datetime.now().strftime("%m_%d_%Y_%H_%M_%S")}.log'
-
-#     if configurations["loglevel"] == "debug":
-#         logger.basicConfig(
-#             format=log_FORMAT,
-#             datefmt='%m/%d/%Y %I:%M:%S %p',
-#             level=logger.DEBUG,
-#             # filename=log_file,
-#             # filemode="w"
-#             handlers=[
-#                 logger.FileHandler(log_file),
-#                 logger.StreamHandler()
-#             ]
-#         )
-
-#         mp.log_to_stderr(logger.DEBUG)
-#     else:
-#         logger.basicConfig(
-#             format=log_FORMAT,
-#             datefmt='%m/%d/%Y %I:%M:%S %p',
-#             level=logger.INFO,
-#             # filename=log_file,
-#             # filemode="w"
-#             handlers=[
-#                 logger.FileHandler(log_file),
-#                 logger.StreamHandler()
-#             ]
-#         )
-
-#     configurations["cpu_count"] = mp.cpu_count()
-#     configurations["thread_limit"] = configurations["max_cc"]
-
-#     if configurations["thread_limit"] == -1:
-#         configurations["thread_limit"] = configurations["cpu_count"]
-
-#     chunk_size = 1024*1024
-#     root_dir = configurations["data_dir"]
-#     tmpfs_dir = f"/dev/shm/data{os.getpid()}/"
-#     probing_time = configurations["probing_sec"]
-#     HOST, PORT = configurations["receiver"]["host"], configurations["receiver"]["port"]
-#     transfer_complete = mp.Value("i", 0)
-#     move_complete = mp.Value("i", 0)
-#     transfer_done = mp.Value("i", 0)
-#     io_process_status = mp.Array("i", [0 for i in range(configurations["thread_limit"])])
-#     transfer_file_offsets = mp.Manager().dict()
-#     io_file_offsets = mp.Manager().dict() ## figure out file_count
-#     throughput_logs = mp.Manager().list()
-#     io_throughput_logs = mp.Manager().list()
-
-#     mQueue = mp.Manager().list()
-#     start, end = mp.Value("i", 0), mp.Value("i", 0)
-
-#     direct_io = False
-#     file_transfer = True
-#     if "file_transfer" in configurations and configurations["file_transfer"] is not None:
-#         file_transfer = configurations["file_transfer"]
-
-#     io_limit = -1
-#     if "io_limit" in configurations and configurations["io_limit"] is not None:
-#         io_limit = int(configurations["io_limit"])
-
-#     try:
-#         os.mkdir(tmpfs_dir)
-#     except Exception as e:
-#         logger.debug(e)
-#         exit(1)
-
-#     _, free = available_space(tmpfs_dir)
-#     memory_limit = min(50, free/2)
-#     num_workers = configurations['thread_limit']
-
-#     sock = socket.socket()
-#     sock.bind((HOST, PORT))
-#     sock.listen(num_workers)
-#     transfer_process_status = mp.Array("i", [0 for _ in range(num_workers)])
-#     transfer_workers = [mp.Process(target=receive_file, args=(sock, i,)) for i in range(num_workers)]
-#     for p in transfer_workers:
-#         p.daemon = True
-#         p.start()
-
-#     io_workers = [mp.Process(target=move_file, args=(i,)) for i in range(num_workers)]
-#     for p in io_workers:
-#         p.daemon = True
-#         p.start()
-
-#     network_report_thread = Thread(target=report_network_throughput)
-#     network_report_thread.start()
-
-#     io_report_thread = Thread(target=report_io_throughput)
-#     io_report_thread.start()
-
-#     io_optimizer_thread = Thread(target=run_optimizer, args=(io_probing,))
-#     io_optimizer_thread.start()
-
-#     # transfer_process_status[0] = 1
-#     # while sum(transfer_process_status)>0:
-#     while transfer_done.value == 0:
-#         time.sleep(0.1)
-
-#     logger.info(f"Transfer Tasks Completed!")
-#     # transfer_done.value = 1
-#     time.sleep(1)
-
-#     for p in transfer_workers:
-#         if p.is_alive():
-#             p.terminate()
-#             p.join(timeout=0.1)
-
-#     while move_complete.value < transfer_complete.value:
-#         time.sleep(0.1)
-
-#     time.sleep(1)
-#     for p in io_workers:
-#         if p.is_alive():
-#             p.terminate()
-#             p.join(timeout=0.1)
-
-#     shutil.rmtree(tmpfs_dir, ignore_errors=True)
-#     logger.debug(f"Transfer Completed!")
-#     exit(1)

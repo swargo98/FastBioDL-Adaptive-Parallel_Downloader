@@ -924,8 +924,8 @@ if __name__ == '__main__':
     )
     parser.add_argument("-i", "--input", required=True,
                         help="Text file: one accession per line.")
-    parser.add_argument("-o", "--outdir", default="/mnt/nvme0n1/fastbiodl/staging/",
-                        help="Where to save downloads.")
+    parser.add_argument("-o", "--outdir", default="fastbiodl/output/",
+                        help="Final destination for .fastq.gz files (should be on DISK for benchmark).")
     parser.add_argument("--fastq", action="store_true",
                         help="Use fastq_ftp instead of sra_ftp")
     parser.add_argument("--segment-size", type=int, default=512,
@@ -963,6 +963,8 @@ if __name__ == '__main__':
         sys.exit(1)
 
     # Shared counters and structures
+    t_start           = time.time()          # ← benchmark: pipeline start
+    t_download_end    = mp.Value("d", 0.0)   # ← benchmark: set when last download completes
     download_complete = mp.Value("i", 0)
     failed_count = mp.Value("i", 0)  # Track failed downloads
     move_complete = mp.Value("i", 0)
@@ -1067,6 +1069,9 @@ if __name__ == '__main__':
     while (download_complete.value + failed_count.value) < initial_task_count and transfer_done.value == 0:
         time.sleep(0.5)
     
+    with t_download_end.get_lock():
+        t_download_end.value = time.time()   # ← benchmark: all downloads finished
+
     transfer_done.value = 1
     logging.info(f"Download Tasks Completed! Success: {download_complete.value}, Failed: {failed_count.value}")
     processing_queue.put(None)       # ← sentinel to unblock dispatcher
@@ -1101,6 +1106,88 @@ if __name__ == '__main__':
     move_queue.put(None)          # sentinel → FileMover feeder exits, sets transfer_done
     mover.stop(timeout=7200.0)   # waits for all .fastq.gz to land on root_dir
     logging.info("All files moved to final destination.")
+
+    # ── Benchmark timing summary ─────────────────────────────────────────────
+    t_end = time.time()
+
+    # Phase windows (absolute epoch seconds)
+    #   download:   pipeline start → last file fully downloaded
+    #   conversion: first fasterq-dump launched → last fasterq-dump finished
+    #   compression:first pigz launched        → last pigz finished
+    # Phases overlap intentionally (fastbiodl pipelines them concurrently).
+    _dl_start   = t_start
+    _dl_end     = t_download_end.value
+    _fq_start   = converter.t_first_fasterq_start   # 0.0 if no job ran
+    _fq_end     = converter.t_last_fasterq_done
+    _pz_start   = converter.t_first_pigz_start
+    _pz_end     = converter.t_last_pigz_done
+
+    def _overlap(s1, e1, s2, e2):
+        """Overlap in seconds between two [start, end] intervals. 0 if either is unset."""
+        if s1 == 0.0 or s2 == 0.0:
+            return 0.0
+        return max(0.0, min(e1, e2) - max(s1, s2))
+
+    import json as _json
+    timing_result = {
+        "tool":       "fastbiodl",
+        "accessions": accs,
+        "phases": {
+            "download": {
+                "start":      _dl_start,
+                "end":        _dl_end,
+                "duration_s": round(_dl_end - _dl_start, 2),
+            },
+            "conversion": {
+                "start":      _fq_start,
+                "end":        _fq_end,
+                "duration_s": round(max(0.0, _fq_end - _fq_start), 2),
+            },
+            "compression": {
+                "start":      _pz_start,
+                "end":        _pz_end,
+                "duration_s": round(max(0.0, _pz_end - _pz_start), 2),
+            },
+        },
+        "overlaps_s": {
+            "download_x_conversion":  round(_overlap(_dl_start, _dl_end, _fq_start, _fq_end), 2),
+            "download_x_compression": round(_overlap(_dl_start, _dl_end, _pz_start, _pz_end), 2),
+            "conversion_x_compression": round(_overlap(_fq_start, _fq_end, _pz_start, _pz_end), 2),
+        },
+        "total_time_s": round(t_end - t_start, 2),
+        # Legacy flat keys kept for backward compatibility with benchmark_compare.py
+        "download_time_s":    round(_dl_end - _dl_start, 2),
+        "conversion_time_s":  round(max(0.0, _fq_end - _fq_start), 2),
+        "compression_time_s": round(max(0.0, _pz_end - _pz_start), 2),
+    }
+
+    ts_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timing_json = f"benchmark_fastbiodl_results_{ts_str}.json"
+    with open(timing_json, "w") as _f:
+        _json.dump(timing_result, _f, indent=2)
+
+    ov = timing_result["overlaps_s"]
+    ph = timing_result["phases"]
+    logging.info(
+        f"\n{'='*60}\n"
+        f"  BENCHMARK SUMMARY (fastbiodl)\n"
+        f"{'='*60}\n"
+        f"  Phase windows (wall-clock, overlapping):\n"
+        f"    Download    {ph['download']['start']:.3f} → {ph['download']['end']:.3f}"
+        f"  ({ph['download']['duration_s']:.1f}s)\n"
+        f"    Conversion  {ph['conversion']['start']:.3f} → {ph['conversion']['end']:.3f}"
+        f"  ({ph['conversion']['duration_s']:.1f}s)\n"
+        f"    Compression {ph['compression']['start']:.3f} → {ph['compression']['end']:.3f}"
+        f"  ({ph['compression']['duration_s']:.1f}s)\n"
+        f"  Overlaps:\n"
+        f"    Download  ∩ Conversion:  {ov['download_x_conversion']:.1f}s\n"
+        f"    Download  ∩ Compression: {ov['download_x_compression']:.1f}s\n"
+        f"    Conversion ∩ Compression:{ov['conversion_x_compression']:.1f}s\n"
+        f"  Total wall-clock:          {timing_result['total_time_s']:.1f}s\n"
+        f"{'='*60}\n"
+        f"  Results → {timing_json}\n"
+        f"{'='*60}"
+    )
     
     # Report failed downloads
     failed_list = []
