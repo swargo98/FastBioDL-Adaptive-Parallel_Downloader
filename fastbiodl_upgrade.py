@@ -322,19 +322,19 @@ class SegmentedDownloader:
         Download file with resume support using .part files.
         Returns (success, was_paused, num_connections) tuple.
         """
+        # Fix #3: single range probe reused for both the already-complete check
+        # and the download path, eliminating a redundant network round-trip.
+        file_size, supports_ranges = await self.probe_range_support()
+
         # Check if final file already exists and is complete
         if os.path.exists(self.local_path):
-            file_size, _ = await self.probe_range_support()
             if file_size and os.path.getsize(self.local_path) == file_size:
                 logging.info(f"[Download #{self.process_id}] Already complete: {os.path.basename(self.local_path)}")
                 if self.process_counter is not None:
                     with self.process_counter.get_lock():
                         self.process_counter.value += file_size
                 return True, False, 0
-        
-        # Get file info via Range probe
-        file_size, supports_ranges = await self.probe_range_support()
-        
+
         if file_size is None:
             logging.warning(f"Could not determine file size for {self.url}, attempting direct download")
             return await self.download_single_connection(supports_ranges=False)
@@ -665,9 +665,15 @@ async def download_worker_async(
                 success, was_paused, _ = await downloader.download_with_resume()
                 
                 if success:
+                    # Fix #1: enqueue to processing_queue BEFORE incrementing
+                    # download_complete.  The main thread exits its wait-loop as
+                    # soon as download_complete reaches initial_task_count and
+                    # immediately puts the None sentinel into processing_queue.
+                    # If we increment first, the sentinel can overtake this item
+                    # and the last .sra file is silently dropped.
+                    processing_queue.put(local_path)   # ← hand off to conversion stage first
                     with download_complete.get_lock():
                         download_complete.value += 1
-                    processing_queue.put(local_path)   # ← hand off to conversion stage
                     logging.info(f"[Download #{process_id}] Queued for processing: {local_path}")
                     task_queue.task_done()
                 elif was_paused:

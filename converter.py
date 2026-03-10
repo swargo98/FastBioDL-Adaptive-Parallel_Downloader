@@ -630,8 +630,13 @@ class SRAConverter:
           3. Busy-wait for _active_jobs to drain to 0.
           4. Join management threads and reap worker procs.
         """
+        # Fix #4: single shared deadline across all shutdown phases so total
+        # wait is bounded by `timeout`, not 2×timeout.
+        _stop_deadline = time.time() + timeout
+
         # Step 1 — let the dispatcher finish on its own (sentinel-driven exit).
-        if not self._dispatcher_done.wait(timeout=timeout):
+        remaining = max(0.0, _stop_deadline - time.time())
+        if not self._dispatcher_done.wait(timeout=remaining):
             logging.warning(
                 f"[SRAConverter] stop() timed out waiting for dispatcher to finish "
                 f"(timeout={timeout}s) — forcing stop."
@@ -642,9 +647,8 @@ class SRAConverter:
         self._stop_event.set()
 
         # Wait for all in-flight jobs to finish naturally.
-        deadline = time.time() + timeout
         while self._active_jobs.value > 0:
-            if time.time() > deadline:
+            if time.time() > _stop_deadline:
                 logging.warning(
                     f"[SRAConverter] stop() timed out after {timeout}s "
                     f"with {self._active_jobs.value} job(s) still active — "
