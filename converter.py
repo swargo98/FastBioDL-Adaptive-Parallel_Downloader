@@ -378,10 +378,12 @@ def _report_conversion_throughput(
     throughput_lock: Lock,
     stop_event,
     log_dir: str = "logs",
+    fastq_dir: str = "/mnt/nvme0n1/fastbiodl/fastq",
 ):
     """
-    Logs conversion throughput (MB/s of compressed output) once per second.
-    Mirrors the download throughput reporter pattern.
+    Logs conversion throughput (MB/s of output) once per second.
+    Tracks fasterq-dump (.fastq files) and pigz (.fastq.gz files) SEPARATELY.
+    Continues monitoring until all active jobs complete (not just until stop_event).
     """
     os.makedirs(log_dir, exist_ok=True)
     t = time.time()
@@ -389,34 +391,94 @@ def _report_conversion_throughput(
         log_dir,
         f"log_conversion_{datetime.datetime.fromtimestamp(t).strftime('%Y%m%d_%H%M%S')}.csv"
     )
-    with open(fname, "w") as f:
-        f.write("timestamp,elapsed_sec,current_mbs,avg_mbs,active_jobs\n")
+    
+    try:
+        with open(fname, "w") as f:
+            f.write("timestamp,elapsed_sec,convert_mbs,compress_mbs,total_mbs,active_jobs,fastq_mb,fastqgz_mb\n")
 
-    start_time = time.time()
-    prev_bytes = 0
+        start_time = time.time()
+        prev_fastq_bytes = 0
+        prev_fastqgz_bytes = 0
 
-    while not stop_event.is_set():
-        time.sleep(1.0)
-        t1 = time.time()
-        elapsed = round(t1 - start_time, 1)
+        logging.info("[ConversionReporter] Started monitoring conversion progress")
 
-        cur_bytes   = byte_counter.value
-        delta_bytes = cur_bytes - prev_bytes
-        prev_bytes  = cur_bytes
+        # Continue until stop_event AND all jobs are done
+        while not stop_event.is_set() or active_jobs.value > 0:
+            try:
+                time.sleep(1.0)
+                t1 = time.time()
+                elapsed = round(t1 - start_time, 1)
+                jobs = active_jobs.value
 
-        curr_mbs = round(delta_bytes / (1024 * 1024), 2)
-        avg_mbs  = round(cur_bytes / (elapsed * 1024 * 1024), 2) if elapsed > 0 else 0.0
-        jobs     = active_jobs.value
+                # Measure .fastq (fasterq-dump output) and .fastq.gz (pigz output) SEPARATELY
+                fastq_bytes = 0
+                fastqgz_bytes = 0
+                if os.path.exists(fastq_dir):
+                    for root, dirs, files in os.walk(fastq_dir):
+                        for f in files:
+                            fpath = os.path.join(root, f)
+                            try:
+                                fsize = os.path.getsize(fpath)
+                                if f.endswith('.fastq.gz'):
+                                    fastqgz_bytes += fsize
+                                elif f.endswith('.fastq'):
+                                    fastq_bytes += fsize
+                            except OSError:
+                                pass  # File might have been deleted
 
-        with throughput_lock:
-            throughput_logs.append(curr_mbs)
+                # Calculate per-second throughput for each phase
+                delta_fastq = fastq_bytes - prev_fastq_bytes
+                delta_fastqgz = fastqgz_bytes - prev_fastqgz_bytes
+                prev_fastq_bytes = fastq_bytes
+                prev_fastqgz_bytes = fastqgz_bytes
 
-        logging.info(
-            f"Conversion @{elapsed}s: Current: {curr_mbs}MB/s, "
-            f"Avg: {avg_mbs}MB/s, Active jobs: {jobs}"
-        )
-        with open(fname, "a") as f:
-            f.write(f"{t1},{elapsed},{curr_mbs},{avg_mbs},{jobs}\n")
+                convert_mbs = round(delta_fastq / (1024 * 1024), 2)
+                compress_mbs = round(delta_fastqgz / (1024 * 1024), 2)
+                total_mbs = convert_mbs + compress_mbs
+
+                fastq_mb = round(fastq_bytes / (1024 * 1024), 2)
+                fastqgz_mb = round(fastqgz_bytes / (1024 * 1024), 2)
+
+                with throughput_lock:
+                    throughput_logs.append(total_mbs)
+
+                # Separate log lines for better clarity
+                # Always show throughput (even if 0) when jobs are active
+                if jobs > 0:
+                    if convert_mbs > 0:
+                        logging.info(
+                            f"fasterq-dump @{elapsed}s: {convert_mbs}MB/s "
+                            f"(total: {fastq_mb}MB .fastq, active: {jobs})"
+                        )
+                    if compress_mbs > 0:
+                        logging.info(
+                            f"pigz @{elapsed}s: {compress_mbs}MB/s "
+                            f"(total: {fastqgz_mb}MB .fastq.gz, active: {jobs})"
+                        )
+                    # If no throughput but jobs are running, they're still processing
+                    # (e.g., fasterq-dump extracting in temp space before writing output)
+                    if convert_mbs == 0 and compress_mbs == 0:
+                        logging.info(
+                            f"Conversion @{elapsed}s: 0MB/s (processing, active: {jobs})"
+                        )
+                else:
+                    # No jobs running - truly idle
+                    logging.info(f"Conversion @{elapsed}s: idle")
+                
+                with open(fname, "a") as f:
+                    f.write(f"{t1},{elapsed},{convert_mbs},{compress_mbs},{total_mbs},{jobs},{fastq_mb},{fastqgz_mb}\n")
+                    
+            except Exception as e:
+                logging.error(f"[ConversionReporter] Error in reporter loop iteration: {e}")
+                # Continue running despite errors
+                continue
+        
+        logging.info(f"[ConversionReporter] Stopped (jobs={active_jobs.value})")
+        
+    except Exception as e:
+        logging.error(f"[ConversionReporter] Fatal error, thread exiting: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
 
 
 #############################
@@ -527,6 +589,8 @@ class SRAConverter:
                 self._throughput_logs,
                 self._throughput_lock,
                 self._stop_event,
+                "logs",
+                self.fastq_dir,  # Pass fastq_dir for file size monitoring
             ),
             name="conv-reporter",
             daemon=True,

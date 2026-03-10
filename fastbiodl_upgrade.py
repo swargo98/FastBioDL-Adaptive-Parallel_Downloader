@@ -70,7 +70,6 @@ def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[Tuple[str, str]]:
                 u = "https://" + u
             url_acc_pairs.append((u, acc))
     
-    time.sleep(0.2)
     return url_acc_pairs
 
 
@@ -155,40 +154,33 @@ class SegmentedDownloader:
     
     async def probe_range_support(self) -> Tuple[Optional[int], bool]:
         """
-        Probe for Range support using a small Range GET request.
-        More reliable than checking Accept-Ranges header.
+        Probe for Range support using a single Range GET request.
+        A 206 response confirms range support and Content-Range gives the full
+        file size, eliminating the separate HEAD round-trip.
         Returns (file_size, supports_ranges).
         """
         try:
-            # First try HEAD to get file size
-            async with self.session.head(self.url, allow_redirects=True) as resp:
-                if resp.status == 200:
+            headers = {'Range': 'bytes=0-0'}
+            async with self.session.get(self.url, headers=headers, allow_redirects=True) as resp:
+                if resp.status == 206:
+                    # Server supports ranges; extract total size from Content-Range
+                    file_size = None
+                    content_range = resp.headers.get('Content-Range', '')
+                    # Format: bytes 0-0/1234
+                    if '/' in content_range:
+                        try:
+                            file_size = int(content_range.split('/')[-1])
+                        except Exception:
+                            pass
+                    return file_size, True
+                elif resp.status == 200:
+                    # Server returned the full file instead of a partial response.
+                    # Use Content-Length for size, but ranges are not supported.
                     content_length = resp.headers.get('Content-Length')
                     file_size = int(content_length) if content_length else None
+                    return file_size, False
                 else:
-                    file_size = None
-            
-            # Probe with tiny Range request to confirm support
-            headers = {'Range': 'bytes=0-0'}
-            async with self.session.get(self.url, headers=headers) as resp:
-                if resp.status == 206:
-                    # Server supports ranges
-                    supports_ranges = True
-                    
-                    # Try to get file size from Content-Range if we don't have it
-                    if file_size is None:
-                        content_range = resp.headers.get('Content-Range', '')
-                        # Format: bytes 0-0/1234
-                        if '/' in content_range:
-                            try:
-                                file_size = int(content_range.split('/')[-1])
-                            except:
-                                pass
-                else:
-                    supports_ranges = False
-            
-            return file_size, supports_ranges
-            
+                    return None, False
         except Exception as e:
             logging.debug(f"Range probe failed for {self.url}: {e}")
             return None, False
@@ -843,7 +835,16 @@ def run_download_optimizer(probing_func, throughput_logs: deque, throughput_lock
     """
     while start.value == 0:
         time.sleep(0.1)
-    
+
+    # Give the pre-activated workers one full probing window to download before
+    # the optimizer's first probe overrides download_process_status.
+    # Without this delay the optimizer fires at second 0 (before workers even
+    # spawn, since URL fetching takes ~3 s) and immediately sets concurrency
+    # back to 1, negating the pre-activation entirely.
+    deadline = start.value + probing_time
+    while time.time() < deadline and transfer_done.value == 0:
+        time.sleep(0.1)
+
     params = [2]
     method = configurations["method"].lower()
     
@@ -987,21 +988,28 @@ if __name__ == '__main__':
     
     field = "fastq_ftp" if args.fastq else "sra_ftp"
     task_count = 0
-    
-    for acc in accs:
+
+    # Fetch all accession URLs in parallel to avoid N×RTT sequential delay.
+    from concurrent.futures import ThreadPoolExecutor, as_completed as futures_as_completed
+
+    def _fetch(acc):
         try:
-            url_acc_pairs = get_ncbi_urls(acc, field)
+            return acc, get_ncbi_urls(acc, field)
         except Exception as e:
             logging.error(f"NCBI lookup failed for {acc}: {e}")
-            continue
-        
-        for url, source_acc in url_acc_pairs:
-            # Create accession-specific subdirectory to avoid collisions
-            filename = os.path.basename(url)
-            relative_path = os.path.join(source_acc, filename)
-            # Queue format: (url, relative_path, retry_count)
-            download_queue.put((url, relative_path, 0))
-            task_count += 1
+            return acc, []
+
+    with ThreadPoolExecutor(max_workers=min(len(accs), 8)) as _pool:
+        _futures = {_pool.submit(_fetch, acc): acc for acc in accs}
+        for _fut in futures_as_completed(_futures):
+            _, url_acc_pairs = _fut.result()
+            for url, source_acc in url_acc_pairs:
+                # Create accession-specific subdirectory to avoid collisions
+                filename = os.path.basename(url)
+                relative_path = os.path.join(source_acc, filename)
+                # Queue format: (url, relative_path, retry_count)
+                download_queue.put((url, relative_path, 0))
+                task_count += 1
 
     initial_task_count = task_count
     files_to_download = mp.Value("i", task_count)
@@ -1012,7 +1020,11 @@ if __name__ == '__main__':
         sys.exit(1)
     
     num_workers = min(initial_task_count, configurations["thread_limit"])
-    download_process_status = mp.Array("i", [0 for _ in range(num_workers)])
+    # Pre-activate the first 2 workers so downloads begin immediately without
+    # waiting for the optimizer's first 5-second probing window.
+    # The optimizer will adjust concurrency from this baseline.
+    _initial_active = min(2, num_workers)
+    download_process_status = mp.Array("i", [1 if i < _initial_active else 0 for i in range(num_workers)])
     
     # Per-process byte counters (no Manager overhead)
     process_counters = [mp.Value('Q', 0) for _ in range(num_workers)]

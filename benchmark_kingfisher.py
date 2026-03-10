@@ -205,11 +205,11 @@ def main():
         elapsed, ok, _ = _run([
             "kingfisher", "get",
             "-r", acc,
-            "--download-threads", str(args.threads),
-            "-m", args.download_method,
-            "--output-format", "sra",
-            "--output-directory", args.sra_dir,
-            "--force",   # overwrite if exists (idempotent re-runs)
+            # "--download-threads", str(args.threads),
+            "-m", "aws-http" , "aws-cp"
+            # "--output-format", "sra",
+            # "--output-directory", args.sra_dir,
+            # "--force",   # overwrite if exists (idempotent re-runs)
         ], log)
         dl_details[acc] = {"ok": ok, "elapsed_s": round(elapsed, 2)}
         log.info(f"  kingfisher get {acc}: {'OK' if ok else 'FAILED'} in {elapsed:.1f}s")
