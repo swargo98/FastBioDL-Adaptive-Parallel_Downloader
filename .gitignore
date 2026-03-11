@@ -1,0 +1,11 @@
+# Ignore log and json files
+*.log
+*.json
+*.csv
+*.pyc
+
+# Ignore specific directories
+aria2c/
+fastbiodl/
+sratools/
+sratoolkit.3.1.0-ubuntu64/
