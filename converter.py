@@ -299,7 +299,7 @@ def _conversion_worker(
     # Launch all pigz processes simultaneously
     procs = {
         fq: subprocess.Popen(
-            ["pigz", "-p", str(max(1, threads // len(fastq_files))), fq],
+            ["pigz", "-p", str(max(1, threads)), fq],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         for fq in fastq_files
@@ -517,7 +517,7 @@ class SRAConverter:
         move_queue: mp.Queue,
         work_dir: str = "/mnt/nvme0n1/fastbiodl/",
         nvme_device: str = "nvme0n1",
-        threads_per_job: int = 4,
+        threads_per_job: int = 8,
         cpu_threshold: float = 85.0,
         nvme_threshold: float = 80.0,
         max_jobs: Optional[int] = None,

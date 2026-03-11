@@ -272,6 +272,8 @@ def main():
                         help="sra-tools result JSON (auto-discovered if omitted)")
     parser.add_argument("--kingfisher",
                         help="kingfisher result JSON (auto-discovered if omitted)")
+    parser.add_argument("--aria2c",
+                        help="aria2c result JSON (auto-discovered if omitted)")
     parser.add_argument("--parse-log",
                         help="Parse a raw fastbiodl .log file to extract timings "
                              "(use when JSON was not saved)")
@@ -316,6 +318,15 @@ def main():
         print(f"[✓] Loaded kingfisher results: {kf_file}")
     else:
         print("[–] No kingfisher results found (run benchmark_kingfisher.py first)")
+
+    # ── aria2c ────────────────────────────────────────────────────────────────
+    ac_file = args.aria2c or _latest_json("benchmark_aria2c_results_*.json")
+    if ac_file and os.path.exists(ac_file):
+        with open(ac_file) as f:
+            results.append(json.load(f))
+        print(f"[✓] Loaded aria2c results:     {ac_file}")
+    else:
+        print("[–] No aria2c results found (run benchmark_aria2c.py first)")
 
     if not results:
         print("\nNo results loaded. Nothing to compare.")
