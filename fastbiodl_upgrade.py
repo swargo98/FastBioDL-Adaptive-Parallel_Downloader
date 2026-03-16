@@ -112,7 +112,7 @@ class SegmentedDownloader:
         
         # Batched counter updates to reduce lock contention
         self.local_bytes_accumulated = 0
-        self.flush_threshold = 4 * 1024 * 1024  # Flush every 4MB
+        self.flush_threshold = 256 * 1024  # Flush every 256 KB — keeps metrics accurate during TCP slow-start
     
     def read_metadata(self) -> Optional[Dict]:
         """Read segment completion metadata from .meta file."""
@@ -322,6 +322,12 @@ class SegmentedDownloader:
         Download file with resume support using .part files.
         Returns (success, was_paused, num_connections) tuple.
         """
+        # Fresh downloads do not need a separate preflight step. Probe range
+        # support inside download_segmented() and begin scheduling segments
+        # immediately after the first 206 response confirms support.
+        if not os.path.exists(self.local_path) and not os.path.exists(self.part_path):
+            return await self.download_segmented()
+
         # Fix #3: single range probe reused for both the already-complete check
         # and the download path, eliminating a redundant network round-trip.
         file_size, supports_ranges = await self.probe_range_support()
@@ -358,12 +364,36 @@ class SegmentedDownloader:
         # Use segmented download
         return await self.download_segmented(file_size)
     
-    async def download_segmented(self, file_size: int) -> Tuple[bool, bool, int]:
+    async def download_segmented(self, file_size: Optional[int] = None) -> Tuple[bool, bool, int]:
         """
         Download file in multiple segments, streaming directly to disk.
         Uses .meta file to track completed segments (not file size).
         Returns (success, was_paused, num_connections) tuple.
         """
+        if file_size is None:
+            try:
+                headers = {'Range': 'bytes=0-0'}
+                async with self.session.get(self.url, headers=headers, allow_redirects=True) as resp:
+                    if resp.status == 206:
+                        content_range = resp.headers.get('Content-Range', '')
+                        if '/' in content_range:
+                            try:
+                                file_size = int(content_range.split('/')[-1])
+                            except Exception:
+                                file_size = None
+                        if file_size is None:
+                            raise Exception(f"Could not determine file size from Content-Range: {content_range}")
+                    elif resp.status == 200:
+                        logging.debug(f"Server doesn't support ranges for {self.url}, using single connection")
+                        content_length = resp.headers.get('Content-Length')
+                        file_size = int(content_length) if content_length else None
+                        return await self.download_single_connection(supports_ranges=False)
+                    else:
+                        raise Exception(f"Unexpected status {resp.status} during range probe")
+            except Exception as e:
+                logging.warning(f"Could not determine range support for {self.url}, attempting direct download: {e}")
+                return await self.download_single_connection(supports_ranges=False)
+
         segments = self.calculate_segments(file_size)
         
         # Load metadata to see which segments are already complete
@@ -1052,7 +1082,7 @@ if __name__ == '__main__':
         move_queue=move_queue,
         work_dir=tmpfs_dir,
         nvme_device="nvme0n1",
-        threads_per_job=configurations.get("conversion_threads", 4),
+        threads_per_job=configurations.get("conversion_threads", 8),
         cpu_threshold=configurations.get("cpu_threshold", 85.0),
         nvme_threshold=configurations.get("nvme_threshold", 80.0),
         max_jobs=configurations.get("max_conversion_jobs", None),
