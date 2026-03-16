@@ -32,6 +32,7 @@ import os
 import sys
 import time
 import json
+import shutil
 import logging
 import argparse
 import datetime
@@ -215,25 +216,14 @@ def main():
 
     for fq in fastq_files:
         out_gz = os.path.join(args.out_dir, fq.name + ".gz")
-        # pigz writes in place by default; pipe to out-dir to keep staging clean
-        elapsed, ok, _ = _run([
-            "pigz",
-            "--processes", str(args.threads),
-            "--stdout",
-            str(fq),
-        ], log)
-        if ok:
-            # Actually run again without --stdout to get the final file
-            # (above was a dry check; use -c to stream to out_dir)
-            pass
-
-        # Proper run: compress in-place then move (avoids double-read)
+        # Compress in-place, then move .gz to out-dir.
         elapsed, ok, _ = _run([
             "pigz", "-p", str(args.threads), str(fq)
         ], log)
         gz_src = str(fq) + ".gz"
         if ok and os.path.exists(gz_src):
-            os.replace(gz_src, out_gz)
+            # shutil.move handles cross-filesystem moves (NVMe -> DISK).
+            shutil.move(gz_src, out_gz)
 
         comp_details[fq.name] = {"ok": ok, "elapsed_s": round(elapsed, 2)}
         log.info(f"  pigz {fq.name}: {'OK' if ok else 'FAILED'} in {elapsed:.1f}s")
