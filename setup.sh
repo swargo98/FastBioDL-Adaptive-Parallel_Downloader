@@ -1,14 +1,16 @@
 #!/bin/bash
 python3 get_pip.py
 
-# List contents of /users/swargo98/.local/bin/
-ls /home/ubuntu/.local/bin/
+LOCAL_BIN_DIR="$HOME/.local/bin"
+
+# List contents of the current user's local bin directory
+ls "$LOCAL_BIN_DIR/"
 
 # Add directory to PATH
-export PATH=$PATH:/home/ubuntu/.local/bin
+export PATH="$PATH:$LOCAL_BIN_DIR"
 
 # Persist the PATH change in ~/.bashrc
-echo 'export PATH=$PATH:/home/ubuntu/.local/bin' >> ~/.bashrc
+echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.bashrc
 
 # Reload ~/.bashrc
 source ~/.bashrc

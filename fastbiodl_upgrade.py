@@ -927,12 +927,12 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, graceful_exit)
 
     # Make log directory
-    if not os.path.exists("logs"):
-        os.makedirs("logs")
+    if not os.path.exists("logs/fastbiodl"):
+        os.makedirs("logs/fastbiodl")
 
     # Configure logging
     log_FORMAT = '%(created)f -- %(levelname)s: %(message)s'
-    log_file = f'logs/receiver.{datetime.datetime.now().strftime("%m_%d_%Y_%H_%M_%S")}.log'
+    log_file = f'logs/fastbiodl/fastbiodl.{datetime.datetime.now().strftime("%m_%d_%Y_%H_%M_%S")}.log'
     
     if configurations.get("loglevel") == "debug":
         logging.basicConfig(
