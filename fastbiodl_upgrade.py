@@ -936,7 +936,7 @@ if __name__ == '__main__':
     parser.add_argument("--fastq", action="store_true",
                         help="Use fastq_ftp instead of sra_ftp")
     parser.add_argument("--segment-size", type=int, default=512,
-                        help="Segment size in MB (default: 10)")
+                        help="Segment size in MB (default: 512)")
     parser.add_argument("--max-segments", type=int, default=8,
                         help="Max segments per file (default: 8)")
     parser.add_argument("--max-retries", type=int, default=3,
