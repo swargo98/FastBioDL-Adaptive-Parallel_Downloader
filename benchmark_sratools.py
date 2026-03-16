@@ -113,8 +113,8 @@ def main():
     args = parser.parse_args()
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"benchmark_sratools_{ts}.log"
-    json_file = args.output_json or f"benchmark_sratools_results_{ts}.json"
+    log_file = f"logs/sratools/benchmark_sratools_{ts}.log"
+    json_file = args.output_json or f"logs/sratools/benchmark_sratools_results_{ts}.json"
 
     logging.basicConfig(
         level=logging.INFO,
@@ -126,7 +126,7 @@ def main():
     )
     log = logging.getLogger()
 
-    for d in (args.sra_dir, args.fastq_dir, args.out_dir):
+    for d in (args.sra_dir, args.fastq_dir, args.out_dir, "logs/sratools/"):
         os.makedirs(d, exist_ok=True)
 
     with open(args.input) as f:
