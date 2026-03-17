@@ -20,7 +20,7 @@ done
 
 echo ""
 echo "=== Removing working directory folders ==="
-for folder in aria2c fastbiodl sratools; do
+for folder in aria2c fastbiodl sratools kingfisher pysradb; do
     target="$WORKDIR/$folder"
     if [[ -d "$target" ]]; then
         echo "  Removing $target"
