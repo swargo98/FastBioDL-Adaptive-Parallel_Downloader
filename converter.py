@@ -735,14 +735,18 @@ class SRAConverter:
                 self._dispatcher_done.set()  # unblock stop() (Bug #6 fix)
                 break
 
-            # FIX [My #3]: skip any file that is not a plain .sra — e.g. when
-            # the pipeline is run with --fastq and FASTQ tarballs land here.
+            # Skip files that are clearly not SRA payloads (e.g. --fastq mode).
+            # Accept common SRA naming variants seen from NCBI sra_ftp:
+            #   SRRxxxx.sra, SRRxxxx.lite.1, SRRxxxx.1 / SRRxxxx.2, and bare SRRxxxx.
             import re
-            SRA_FILE_RE = re.compile(r'\.(sra|lite\.\d+)$')
+            SRA_FILE_RE = re.compile(
+                r'^(?:[SED]RR\d+)$|\.(?:sra|lite\.\d+|\d+)$',
+                re.IGNORECASE,
+            )
 
             if not SRA_FILE_RE.search(os.path.basename(sra_path)):
                 logging.warning(
-                    f"[SRAConverter] Skipping non-SRA file (expected .sra): {sra_path}"
+                    f"[SRAConverter] Skipping non-SRA file (not convertible by fasterq-dump): {sra_path}"
                 )
                 self.move_queue.put(sra_path)
                 continue
