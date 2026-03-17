@@ -8,5 +8,6 @@ configurations = {
     "thread_limit": 15,
     "K": 1.02,
     "probing_sec": 5, # probing interval in seconds
+    "ncbi_lookup_rps": 2.0,
     "loglevel": "info",
 }
