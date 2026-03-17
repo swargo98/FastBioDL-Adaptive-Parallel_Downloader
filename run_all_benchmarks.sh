@@ -8,6 +8,17 @@
 
 set -u
 
+to_human() {
+  local bytes="$1"
+  if command -v numfmt >/dev/null 2>&1; then
+    numfmt --to=iec --suffix=B "$bytes"
+  else
+    echo "${bytes}B"
+  fi
+}
+
+total_deleted_bytes=0
+
 accession_lists=(
   "accessions_large_PRJNA200694.txt"
   "accessions_medium_PRJNA353374.txt"
@@ -44,10 +55,18 @@ for accession_list in "${accession_lists[@]}"; do
         echo "[WARN] Command failed with exit code $exit_code: python3 $script -i $accession_list"
       fi
 
-      ./clear_files.sh
+      clear_output="$(CLEAR_CONTEXT="script=$script accession_list=$accession_list run=$run_count" ./clear_files.sh 2>&1)"
       clear_exit_code=$?
+      echo "$clear_output"
       if [[ $clear_exit_code -ne 0 ]]; then
         echo "[WARN] clear_files.sh failed with exit code $clear_exit_code"
+      else
+        deleted_bytes="$(echo "$clear_output" | awk -F= '/^WORKDIR_DELETED_BYTES=/{print $2}' | tail -n1)"
+        if [[ "$deleted_bytes" =~ ^[0-9]+$ ]]; then
+          total_deleted_bytes=$((total_deleted_bytes + deleted_bytes))
+        else
+          echo "[WARN] Could not parse WORKDIR_DELETED_BYTES from clear_files.sh output"
+        fi
       fi
 
       sleep 60
@@ -56,3 +75,4 @@ for accession_list in "${accession_lists[@]}"; do
 done
 
 echo "All loop combinations completed."
+echo "Total working-directory deleted across this run: $(to_human "$total_deleted_bytes") ($total_deleted_bytes bytes)"
