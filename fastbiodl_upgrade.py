@@ -745,7 +745,7 @@ def report_network_throughput(process_counters: List[mp.Value], active_connectio
     """
     previous_total, previous_time = 0, 0
     t = time.time()
-    fname = f'log_download_{datetime.datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S")}.csv'
+    fname = f'logs/fastbiodl/log_download_{datetime.datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S")}.csv'
     
     # Write CSV header
     with open(fname, 'w') as f:
@@ -1188,7 +1188,7 @@ if __name__ == '__main__':
     }
 
     ts_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    timing_json = f"benchmark_fastbiodl_results_{ts_str}.json"
+    timing_json = f"logs/fastbiodl/benchmark_fastbiodl_results_{ts_str}.json"
     with open(timing_json, "w") as _f:
         _json.dump(timing_result, _f, indent=2)
 
