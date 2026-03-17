@@ -18,211 +18,33 @@ from search import base_optimizer, gradient_opt_fast, exit_signal
 
 from typing import List, Tuple, Optional, Dict, Set
 import argparse
-import csv
 import json
-import random
-import xml.etree.ElementTree as ET
 from converter import SRAConverter
 from mover import FileMover
 import queue
-
-NCBI_EFETCH = (
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-)
-NCBI_RUN_NEW = "https://trace.ncbi.nlm.nih.gov/Traces/sra-db-be/run_new"
+from ncbi_lookup import get_ncbi_urls as shared_get_ncbi_urls
 
 # Suppress FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 #############################
-# NCBI Rate Limiter
-#############################
-class NCBIRateLimiter:
-    """
-    Enforces a global request pace for NCBI lookups.
-    Thread-safe and intentionally non-bursty: each request gets a scheduled slot
-    at least min_interval apart from the previous request.
-    """
-    def __init__(self, max_rps: float = 2.0):
-        self.max_rps = max(0.1, float(max_rps))
-        self.min_interval = 1.0 / self.max_rps
-        self.next_allowed_at = time.monotonic()
-        self.lock = Lock()
-    
-    def wait_if_needed(self):
-        """
-        Reserve the next request slot and sleep (outside lock) until that slot.
-        Using a monotonic clock avoids issues with wall-clock adjustments.
-        """
-        with self.lock:
-            now = time.monotonic()
-            slot_time = max(now, self.next_allowed_at)
-            self.next_allowed_at = slot_time + self.min_interval
-
-        delay = slot_time - time.monotonic()
-        if delay > 0:
-            time.sleep(delay)
-
-# Global rate limiter for NCBI efetch
-# Default to 2 req/s for reliability on shared/public IPs.
-# Can be tuned in config_fastbiodl.py via "ncbi_lookup_rps".
-ncbi_rate_limiter = NCBIRateLimiter(max_rps=float(configurations.get("ncbi_lookup_rps", 2.0)))
-
-#############################
 # NCBI URL fetching
 #############################
 def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[Tuple[str, str]]:
-    """
-    Fetch download URLs for a given SRA accession from NCBI's efetch "runinfo" endpoint.
-    Returns list of (url, accession) tuples to preserve source context.
-    """
-    import requests
-
-    def _parse_runinfo_csv(text: str) -> List[Tuple[str, str]]:
-        lines = [l for l in text.strip().splitlines() if l.strip()]
-        if len(lines) < 2:
-            return []
-
-        reader = csv.reader(lines)
-        header = next(reader)
-        data_rows = list(reader)
-        col_map = {"sra_ftp": "download_path", "fastq_ftp": "fastq_ftp"}
-        col_name = col_map.get(field, field)
-        if col_name not in header:
-            return []
-
-        idx = header.index(col_name)
-        url_acc_pairs: List[Tuple[str, str]] = []
-        for row in data_rows:
-            if idx >= len(row):
-                continue
-            for u in row[idx].split(";"):
-                if not u:
-                    continue
-                if "://" not in u:
-                    u = "https://" + u
-                url_acc_pairs.append((u, acc))
-        return url_acc_pairs
-
-    def _parse_run_new_xml(text: str) -> List[Tuple[str, str]]:
-        # Fallback parser for NCBI run_new XML when efetch is temporarily unavailable.
-        try:
-            root = ET.fromstring(text)
-        except ET.ParseError:
-            return []
-
-        urls: List[str] = []
-        # For sra_ftp, prefer SRA Lite URL if available.
-        preferred_semantic = "SRA Lite" if field == "sra_ftp" else "fastq"
-
-        for sra_file in root.findall(".//SRAFile"):
-            semantic_name = (sra_file.get("semantic_name") or "").strip()
-            url_attr = (sra_file.get("url") or "").strip()
-
-            if semantic_name.lower() == preferred_semantic.lower() and url_attr.startswith(("http://", "https://")):
-                urls.append(url_attr)
-
-            for alt in sra_file.findall("Alternatives"):
-                alt_url = (alt.get("url") or "").strip()
-                if alt_url.startswith(("http://", "https://")):
-                    if semantic_name.lower() == preferred_semantic.lower():
-                        urls.append(alt_url)
-
-        if not urls and field == "sra_ftp":
-            # Last resort: any HTTPS SRA URL to keep download flow alive.
-            for sra_file in root.findall(".//SRAFile"):
-                for candidate in ((sra_file.get("url") or "").strip(),):
-                    if candidate.startswith(("http://", "https://")):
-                        urls.append(candidate)
-                for alt in sra_file.findall("Alternatives"):
-                    alt_url = (alt.get("url") or "").strip()
-                    if alt_url.startswith(("http://", "https://")):
-                        urls.append(alt_url)
-
-        # Preserve order and deduplicate.
-        seen = set()
-        deduped = []
-        for u in urls:
-            if u not in seen:
-                seen.add(u)
-                deduped.append(u)
-
-        return [(u, acc) for u in deduped]
-
-    timeout = 30
-    max_attempts = int(configurations.get("ncbi_lookup_retries", 5))
-    backoff_base = float(configurations.get("ncbi_lookup_backoff_base", 1.0))
-    ncbi_email = os.environ.get("NCBI_EMAIL", configurations.get("ncbi_email", ""))
-    ncbi_api_key = os.environ.get("NCBI_API_KEY", configurations.get("ncbi_api_key", ""))
-    headers = {
-        "User-Agent": "fastbiodl/3.0 (+https://github.com/)",
-    }
-
-    efetch_params = {
-        "db": "sra",
-        "id": acc,
-        "rettype": "runinfo",
-        "retmode": "text",
-        "tool": "fastbiodl",
-    }
-    if ncbi_email:
-        efetch_params["email"] = ncbi_email
-    if ncbi_api_key:
-        efetch_params["api_key"] = ncbi_api_key
-
-    run_new_params = {"acc": acc}
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            # Enforce global NCBI request pacing
-            ncbi_rate_limiter.wait_if_needed()
-            logging.info(f"Fetching URLs for {acc} from NCBI SRA using field '{field}'")
-            
-            r = requests.get(
-                NCBI_EFETCH,
-                params=efetch_params,
-                headers=headers,
-                timeout=timeout,
-            )
-            if r.status_code == 200:
-                parsed = _parse_runinfo_csv(r.text)
-                if parsed:
-                    return parsed
-                logging.warning(f"NCBI runinfo returned no usable URLs for {acc}")
-            elif r.status_code in (429, 500, 502, 503, 504):
-                raise requests.HTTPError(f"Retryable HTTP status {r.status_code}")
-            else:
-                logging.error(f"NCBI runinfo non-retryable status for {acc}: {r.status_code}")
-                break
-        except Exception as e:
-            if attempt == max_attempts:
-                logging.error(f"NCBI runinfo failed for {acc} after {max_attempts} attempts: {e}")
-            else:
-                sleep_s = backoff_base * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
-                logging.warning(
-                    f"NCBI runinfo attempt {attempt}/{max_attempts} failed for {acc}: {e}; retrying in {sleep_s:.2f}s"
-                )
-                time.sleep(sleep_s)
-
-    # Fallback endpoint: returns XML with SRAFile URLs, often available even
-    # when efetch is intermittently returning 5xx.
-    try:
-        # Enforce global NCBI request pacing for fallback too
-        ncbi_rate_limiter.wait_if_needed()
-        
-        if ncbi_api_key:
-            run_new_params["api_key"] = ncbi_api_key
-        r2 = requests.get(NCBI_RUN_NEW, params=run_new_params, headers=headers, timeout=timeout)
-        r2.raise_for_status()
-        fallback_urls = _parse_run_new_xml(r2.text)
-        if fallback_urls:
-            logging.info(f"Fallback lookup succeeded for {acc} via run_new")
-            return fallback_urls
-        logging.error(f"Fallback lookup returned no usable URLs for {acc}")
-    except Exception as e:
-        logging.error(f"Fallback lookup failed for {acc}: {e}")
-
-    return []
+    """Compatibility wrapper around shared NCBI lookup implementation."""
+    return shared_get_ncbi_urls(
+        acc,
+        field=field,
+        max_attempts=int(configurations.get("ncbi_lookup_retries", 5)),
+        backoff_base=float(configurations.get("ncbi_lookup_backoff_base", 1.0)),
+        timeout=int(configurations.get("ncbi_lookup_timeout", 30)),
+        max_rps=float(configurations.get("ncbi_lookup_rps", 2.0)),
+        user_agent=str(configurations.get("ncbi_user_agent", "fastbiodl/3.0 (+https://github.com/)")),
+        tool_name=str(configurations.get("ncbi_tool_name", "fastbiodl")),
+        email=os.environ.get("NCBI_EMAIL", configurations.get("ncbi_email", "")),
+        api_key=os.environ.get("NCBI_API_KEY", configurations.get("ncbi_api_key", "")),
+        logger=logging,
+    )
 
 
 #############################

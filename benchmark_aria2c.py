@@ -37,7 +37,6 @@ Output
 
 import os
 import sys
-import csv
 import time
 import json
 import logging
@@ -48,49 +47,26 @@ import subprocess
 from pathlib import Path
 from typing import List, Tuple, Optional
 
-import requests
-
-NCBI_EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+from ncbi_lookup import get_ncbi_urls as shared_get_ncbi_urls
 
 
-# ── URL fetching (mirrors fastbiodl_upgrade.py) ───────────────────────────────
+# ── URL fetching (shared with fastbiodl_upgrade.py) ──────────────────────────
 
 def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[Tuple[str, str]]:
-    """
-    Fetch download URLs for a given SRA accession from NCBI's efetch "runinfo"
-    endpoint. Returns a list of (url, accession) tuples.
-    """
-    logging.info(f"Fetching URLs for {acc} from NCBI SRA using field '{field}'")
-    r = requests.get(
-        NCBI_EFETCH,
-        params={"db": "sra", "id": acc, "rettype": "runinfo", "retmode": "text"},
+    """Compatibility wrapper around shared NCBI lookup implementation."""
+    return shared_get_ncbi_urls(
+        acc,
+        field=field,
+        max_attempts=5,
+        backoff_base=1.0,
         timeout=30,
+        max_rps=2.0,
+        user_agent="benchmark-aria2c/1.0 (+https://github.com/)",
+        tool_name="benchmark_aria2c",
+        email=os.environ.get("NCBI_EMAIL", ""),
+        api_key=os.environ.get("NCBI_API_KEY", ""),
+        logger=logging,
     )
-    r.raise_for_status()
-    lines = [l for l in r.text.strip().splitlines() if l.strip()]
-    if len(lines) < 2:
-        return []
-
-    reader = csv.reader(lines)
-    header = next(reader)
-    data_rows = list(reader)
-    col_map = {"sra_ftp": "download_path", "fastq_ftp": "fastq_ftp"}
-    col_name = col_map.get(field, field)
-    if col_name not in header:
-        logging.warning(f"Column '{col_name}' not found in runinfo for {acc}")
-        return []
-
-    idx = header.index(col_name)
-    url_acc_pairs: List[Tuple[str, str]] = []
-    for row in data_rows:
-        for u in row[idx].split(";"):
-            if not u:
-                continue
-            if "://" not in u:
-                u = "https://" + u
-            url_acc_pairs.append((u, acc))
-
-    return url_acc_pairs
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
