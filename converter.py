@@ -56,6 +56,7 @@ import time
 import logging
 import subprocess
 import datetime
+import shutil
 import multiprocessing as mp
 from threading import Thread, Lock, Event
 from collections import deque
@@ -507,6 +508,11 @@ class SRAConverter:
         NVMe utilization % ceiling for admission gate (default 80.0).
     max_jobs : int | None
         Hard sanity ceiling on concurrent jobs.  None → cpu_count.
+    output_size_factor : float
+        Estimated FASTQ expansion factor relative to SRA size for admission.
+        Example: 10.0 means require 10x SRA bytes as free disk space.
+    disk_safety_margin_gb : float
+        Extra free-space buffer (GB) added to each admission decision.
     probing_sec : float
         Poll interval inside admission gate (seconds).
     """
@@ -521,6 +527,8 @@ class SRAConverter:
         cpu_threshold: float = 85.0,
         nvme_threshold: float = 80.0,
         max_jobs: Optional[int] = None,
+        output_size_factor: float = 10.0,
+        disk_safety_margin_gb: float = 1.0,
         probing_sec: float = 1.0,
     ):
         self.processing_queue = processing_queue
@@ -533,6 +541,8 @@ class SRAConverter:
         self.cpu_threshold    = cpu_threshold
         self.nvme_threshold   = nvme_threshold
         self.max_jobs         = max_jobs or mp.cpu_count()
+        self.output_size_factor = max(1.0, float(output_size_factor))
+        self.disk_safety_margin_bytes = max(0, int(float(disk_safety_margin_gb) * (1024 ** 3)))
         self.probing_sec      = probing_sec
 
         # Shared state
@@ -557,6 +567,13 @@ class SRAConverter:
         # Throughput tracking
         self._throughput_logs = deque(maxlen=10000)
         self._throughput_lock = Lock()
+
+        # Aggregate disk reservation tracking for conversion jobs.
+        # This prevents over-admission when each individual job passes
+        # free-space checks but the sum of active jobs exceeds headroom.
+        self._disk_reserved_bytes = mp.Value("Q", 0)
+        self._reserved_by_sra = {}
+        self._reserve_lock = Lock()
 
         # FIX [My #1]: lock that protects _worker_procs against the
         # dispatcher (append) vs. collector (iterate + reassign) race.
@@ -605,8 +622,88 @@ class SRAConverter:
             f"threads_per_job={self.threads_per_job}, "
             f"nvme_device={self.nvme_device}, "
             f"cpu_threshold={self.cpu_threshold}%, "
-            f"nvme_threshold={self.nvme_threshold}%"
+            f"nvme_threshold={self.nvme_threshold}%, "
+            f"output_size_factor={self.output_size_factor}x, "
+            f"disk_safety_margin_gb={round(self.disk_safety_margin_bytes / (1024 ** 3), 2)}"
         )
+
+    def _estimate_required_free_bytes(self, sra_path: str) -> int:
+        """
+        Estimate required free disk bytes for converting one SRA file.
+        Rule: required = sra_size * output_size_factor + safety_margin.
+        """
+        try:
+            sra_size = os.path.getsize(sra_path)
+        except OSError as e:
+            logging.warning(
+                f"[SRAConverter] Could not stat {sra_path} for disk admission: {e}. "
+                "Falling back to safety margin only."
+            )
+            sra_size = 0
+
+        return int(sra_size * self.output_size_factor) + self.disk_safety_margin_bytes
+
+    def _wait_for_disk_headroom(self, sra_path: str, required_free_bytes: int):
+        """
+        Block until work_dir filesystem has enough free space to cover
+        current reservations plus this job's expected footprint.
+        """
+        wait_cycles = 0
+        while True:
+            try:
+                free_bytes = shutil.disk_usage(self.work_dir).free
+            except OSError as e:
+                logging.warning(
+                    f"[SRAConverter] disk_usage failed for {self.work_dir}: {e}; retrying"
+                )
+                time.sleep(self.probing_sec)
+                continue
+
+            with self._disk_reserved_bytes.get_lock():
+                reserved_bytes = int(self._disk_reserved_bytes.value)
+
+            needed_bytes = reserved_bytes + required_free_bytes
+
+            if free_bytes >= needed_bytes:
+                if wait_cycles > 0:
+                    logging.info(
+                        f"[SRAConverter] Disk admission granted for {os.path.basename(sra_path)} "
+                        f"(free {free_bytes / (1024 ** 3):.2f}GB >= "
+                        f"needed {needed_bytes / (1024 ** 3):.2f}GB "
+                        f"[reserved {reserved_bytes / (1024 ** 3):.2f}GB + "
+                        f"new {required_free_bytes / (1024 ** 3):.2f}GB])"
+                    )
+                return
+
+            wait_cycles += 1
+            # Emit every ~5 polling cycles to avoid log spam.
+            if wait_cycles == 1 or wait_cycles % 5 == 0:
+                logging.info(
+                    f"[SRAConverter] Waiting for disk space for {os.path.basename(sra_path)} "
+                    f"(free {free_bytes / (1024 ** 3):.2f}GB < "
+                    f"needed {needed_bytes / (1024 ** 3):.2f}GB "
+                    f"[reserved {reserved_bytes / (1024 ** 3):.2f}GB + "
+                    f"new {required_free_bytes / (1024 ** 3):.2f}GB])"
+                )
+            time.sleep(self.probing_sec)
+
+    def _reserve_disk_for_job(self, sra_path: str, reserved_bytes: int):
+        """Register reserved bytes for a job after admission, before launch."""
+        with self._reserve_lock:
+            self._reserved_by_sra[sra_path] = reserved_bytes
+            with self._disk_reserved_bytes.get_lock():
+                self._disk_reserved_bytes.value += reserved_bytes
+
+    def _release_disk_reservation(self, sra_path: str):
+        """Release reserved bytes once job result has been collected."""
+        with self._reserve_lock:
+            reserved_bytes = self._reserved_by_sra.pop(sra_path, 0)
+            if reserved_bytes > 0:
+                with self._disk_reserved_bytes.get_lock():
+                    self._disk_reserved_bytes.value = max(
+                        0,
+                        self._disk_reserved_bytes.value - reserved_bytes,
+                    )
 
     def stop(self, timeout: float = 7200.0):
         """
@@ -757,7 +854,11 @@ class SRAConverter:
             while self._active_jobs.value >= self.max_jobs:
                 time.sleep(0.5)
 
-            # ── (c) admission gate — wait for CPU + NVMe headroom ──────────
+            # ── (c) disk admission — ensure enough NVMe free space ──────────
+            required_free_bytes = self._estimate_required_free_bytes(sra_path)
+            self._wait_for_disk_headroom(sra_path, required_free_bytes)
+
+            # ── (d) admission gate — wait for CPU + NVMe headroom ──────────
             # The dispatcher only exits via the sentinel from now on, so
             # pass stop_event=None — we no longer want the gate to abort
             # mid-drain (that was the original Bug #6 root cause).
@@ -778,7 +879,7 @@ class SRAConverter:
                 f"— launching job for {os.path.basename(sra_path)}"
             )
 
-            # ── (d) launch worker process ───────────────────────────────────
+            # ── (e) launch worker process ───────────────────────────────────
             self._job_id_counter += 1
             job_id = self._job_id_counter
 
@@ -798,7 +899,12 @@ class SRAConverter:
                 ),
                 daemon=False,   # FIX [Img #5]
             )
-            p.start()
+            self._reserve_disk_for_job(sra_path, required_free_bytes)
+            try:
+                p.start()
+            except Exception:
+                self._release_disk_reservation(sra_path)
+                raise
 
             # FIX [My #1]: hold _procs_lock while appending
             with self._procs_lock:
@@ -869,6 +975,9 @@ class SRAConverter:
         """
         with self._active_jobs.get_lock():
             self._active_jobs.value = max(0, self._active_jobs.value - 1)
+
+        # Release disk reservation for this job as soon as result is collected.
+        self._release_disk_reservation(sra_path)
 
         # fasterq-dump window ─────────────────────────────────────────────────
         if t_fasterq_start > 0.0:

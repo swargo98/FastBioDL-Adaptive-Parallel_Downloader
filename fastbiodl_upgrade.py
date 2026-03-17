@@ -1064,6 +1064,8 @@ if __name__ == '__main__':
         cpu_threshold=configurations.get("cpu_threshold", 85.0),
         nvme_threshold=configurations.get("nvme_threshold", 80.0),
         max_jobs=configurations.get("max_conversion_jobs", None),
+        output_size_factor=configurations.get("conversion_output_factor", 10.0),
+        disk_safety_margin_gb=configurations.get("conversion_disk_safety_margin_gb", 1.0),
     )
     converter.start()
 
