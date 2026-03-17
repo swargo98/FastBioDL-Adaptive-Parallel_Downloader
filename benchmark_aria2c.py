@@ -44,6 +44,7 @@ import argparse
 import datetime
 import shutil
 import subprocess
+import re
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -101,20 +102,33 @@ def _run(cmd: List[str], log: logging.Logger, timeout: int = 7200) -> Tuple[floa
 def _find_sra(sra_dir: str, acc: str) -> Optional[str]:
     """
     Locate the SRA-format file written by aria2c for the given accession.
-    Covers .sra and NCBI lite-format files (.lite.1, .lite.2, etc.).
+    Covers the same naming variants accepted by converter.py:
+    .sra, .lite.N, .N, and bare accession filenames.
     """
     candidates = [
+        os.path.join(sra_dir, acc),
+        os.path.join(sra_dir, acc, acc),
         os.path.join(sra_dir, f"{acc}.sra"),
         os.path.join(sra_dir, acc, f"{acc}.sra"),
+        os.path.join(sra_dir, f"{acc}.1"),
+        os.path.join(sra_dir, acc, f"{acc}.1"),
+        os.path.join(sra_dir, f"{acc}.2"),
+        os.path.join(sra_dir, acc, f"{acc}.2"),
     ]
     for c in candidates:
         if os.path.exists(c):
             return c
-    # Broader search: .sra, .lite.1, .lite.2 …
-    for pattern in (f"**/{acc}*.sra", f"**/{acc}*.lite*"):
-        matches = sorted(Path(sra_dir).glob(pattern))
-        if matches:
-            return str(matches[0])
+
+    sra_file_re = re.compile(
+        rf"(?:^|/){re.escape(acc)}(?:\.sra|\.lite\.\d+|\.\d+)?$",
+        re.IGNORECASE,
+    )
+    matches = []
+    for path in Path(sra_dir).glob(f"**/{acc}*"):
+        if path.is_file() and sra_file_re.search(str(path)):
+            matches.append(path)
+    if matches:
+        return str(sorted(matches)[0])
     return None
 
 
