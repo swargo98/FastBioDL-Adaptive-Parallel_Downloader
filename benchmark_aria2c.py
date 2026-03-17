@@ -169,6 +169,9 @@ def main():
     log_file = f"logs/aria2c/benchmark_aria2c_{ts}.log"
     json_file = args.output_json or f"logs/aria2c/benchmark_aria2c_results_{ts}.json"
 
+    for d in (args.sra_dir, args.fastq_dir, args.out_dir, "logs/aria2c/"):
+        os.makedirs(d, exist_ok=True)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)s  %(message)s",
@@ -178,9 +181,6 @@ def main():
         ],
     )
     log = logging.getLogger()
-
-    for d in (args.sra_dir, args.fastq_dir, args.out_dir, "logs/aria2c/"):
-        os.makedirs(d, exist_ok=True)
 
     with open(args.input) as f:
         accessions = [l.strip() for l in f if l.strip()]
