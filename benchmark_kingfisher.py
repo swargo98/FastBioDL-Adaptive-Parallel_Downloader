@@ -10,7 +10,7 @@ Pipeline
 
 Timing model (matches fastbiodl benchmark)
 ------------------------------------------
-  download_time    = wall time until ALL kingfisher get calls complete
+    download_time    = wall time for URL fetch + ALL kingfisher get calls
   conversion_time  = wall time for ALL kingfisher convert calls
   compression_time = wall time for ALL pigz calls
 
@@ -64,6 +64,8 @@ import datetime
 import subprocess
 from pathlib import Path
 from typing import List, Tuple
+
+from ncbi_lookup import get_ncbi_urls as shared_get_ncbi_urls
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -131,6 +133,23 @@ def _convert_with_fasterq(sra_path: str, fastq_dir: str, threads: int,
     return elapsed, ok
 
 
+def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[Tuple[str, str]]:
+    """Compatibility wrapper around shared NCBI lookup implementation."""
+    return shared_get_ncbi_urls(
+        acc,
+        field=field,
+        max_attempts=5,
+        backoff_base=1.0,
+        timeout=30,
+        max_rps=2.0,
+        user_agent="benchmark-kingfisher/1.0 (+https://github.com/)",
+        tool_name="benchmark_kingfisher",
+        email=os.environ.get("NCBI_EMAIL", ""),
+        api_key=os.environ.get("NCBI_API_KEY", ""),
+        logger=logging,
+    )
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -191,16 +210,29 @@ def main():
     t_global_start = time.time()
 
     # ══════════════════════════════════════════════════════════════════════════
-    # PHASE 1 — Download SRA (kingfisher get → DISK)
+    # PHASE 1 — URL fetch + Download SRA (kingfisher get → DISK)
     # ══════════════════════════════════════════════════════════════════════════
     log.info("=" * 60)
-    log.info("PHASE 1: Download SRA (kingfisher get --output-format sra)")
+    log.info("PHASE 1: URL fetch + Download SRA (kingfisher get --output-format sra)")
     log.info("=" * 60)
 
     t_dl_start = time.time()
     dl_details: dict = {}
 
     for acc in accessions:
+        # Include NCBI URL lookup wall time in download phase for parity with other benchmarks.
+        t_url_start = time.time()
+        url_pairs: List[Tuple[str, str]] = []
+        url_fetch_ok = True
+        url_fetch_error = ""
+        try:
+            url_pairs = get_ncbi_urls(acc, "sra_ftp")
+        except Exception as exc:
+            url_fetch_ok = False
+            url_fetch_error = str(exc)
+            log.warning(f"  URL fetch failed for {acc}: {exc}")
+        url_fetch_elapsed = time.time() - t_url_start
+
         # kingfisher get saves .sra to the output-directory
         elapsed, ok, _ = _run([
             "kingfisher", "get",
@@ -211,7 +243,15 @@ def main():
             # "--output-directory", args.sra_dir,
             # "--force",   # overwrite if exists (idempotent re-runs)
         ], log)
-        dl_details[acc] = {"ok": ok, "elapsed_s": round(elapsed, 2)}
+        dl_details[acc] = {
+            "ok": ok,
+            "elapsed_s": round(elapsed, 2),
+            "url_fetch_ok": url_fetch_ok,
+            "url_fetch_elapsed_s": round(url_fetch_elapsed, 2),
+            "url_count": len(url_pairs),
+        }
+        if url_fetch_error:
+            dl_details[acc]["url_fetch_error"] = url_fetch_error
         log.info(f"  kingfisher get {acc}: {'OK' if ok else 'FAILED'} in {elapsed:.1f}s")
 
     t_dl_end = time.time()

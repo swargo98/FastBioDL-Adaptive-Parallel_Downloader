@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-benchmark_aria2c_iterative.py — Benchmark aria2c with per-accession pipeline.
+benchmark_aria2c_kingfisher.py — Benchmark aria2c with per-accession pipeline.
 
 Pipeline
 --------
@@ -15,7 +15,7 @@ This differs from benchmark_aria2c.py, which is phase-batched as:
 
 Timing model
 ------------
-  download_time_s    = sum of per-accession download wall time
+    download_time_s    = sum of per-accession URL-fetch + download wall time
   conversion_time_s  = sum of per-accession conversion wall time
   compression_time_s = sum of per-accession compression wall time
   total_time_s       = end-to-end benchmark wall time
@@ -28,7 +28,7 @@ Requirements
 
 Usage
 -----
-  python benchmark_aria2c_iterative.py -i accessions.txt \
+  python benchmark_aria2c_kingfisher.py -i accessions.txt \
       --sra-dir   aria2c/sra \
       --fastq-dir /mnt/nvme0n1/benchmark/aria2c/fastq \
       --out-dir   aria2c/output \
@@ -36,8 +36,8 @@ Usage
 
 Output
 ------
-  logs/aria2c/benchmark_aria2c_iterative_results_<timestamp>.json
-  logs/aria2c/benchmark_aria2c_iterative_<timestamp>.log
+  logs/kingfisher/benchmark_aria2c_kingfisher_results_<timestamp>.json
+  logs/kingfisher/benchmark_aria2c_kingfisher_<timestamp>.log
 """
 
 import os
@@ -68,7 +68,7 @@ def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[Tuple[str, str]]:
         timeout=30,
         max_rps=2.0,
         user_agent="benchmark-aria2c-iterative/1.0 (+https://github.com/)",
-        tool_name="benchmark_aria2c_iterative",
+        tool_name="benchmark_aria2c_kingfisher",
         email=os.environ.get("NCBI_EMAIL", ""),
         api_key=os.environ.get("NCBI_API_KEY", ""),
         logger=logging,
@@ -202,10 +202,10 @@ def main() -> None:
     args = parser.parse_args()
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"logs/aria2c/benchmark_aria2c_iterative_{ts}.log"
-    json_file = args.output_json or f"logs/aria2c/benchmark_aria2c_iterative_results_{ts}.json"
+    log_file = f"logs/kingfisher/benchmark_aria2c_kingfisher_{ts}.log"
+    json_file = args.output_json or f"logs/kingfisher/benchmark_aria2c_kingfisher_results_{ts}.json"
 
-    for directory in (args.sra_dir, args.fastq_dir, args.out_dir, "logs/aria2c/"):
+    for directory in (args.sra_dir, args.fastq_dir, args.out_dir, "logs/kingfisher/"):
         os.makedirs(directory, exist_ok=True)
 
     logging.basicConfig(
@@ -250,21 +250,37 @@ def main() -> None:
         }
 
         # Step 1: NCBI URL fetch + aria2c download
+        t_url_start = time.time()
         try:
             url_pairs = get_ncbi_urls(acc, field)
         except Exception as e:
+            url_fetch_elapsed = time.time() - t_url_start
             log.error(f"  URL fetch failed for {acc}: {e}")
-            acc_record["download"] = {"ok": False, "elapsed_s": 0.0, "reason": str(e)}
+            acc_record["download"] = {
+                "ok": False,
+                "elapsed_s": round(url_fetch_elapsed, 2),
+                "url_fetch_elapsed_s": round(url_fetch_elapsed, 2),
+                "reason": str(e),
+            }
+            phase_totals["download"] += url_fetch_elapsed
             details[acc] = acc_record
             continue
+
+        url_fetch_elapsed = time.time() - t_url_start
 
         if not url_pairs:
             log.warning(f"  No URLs found for {acc} -- skipping accession")
-            acc_record["download"] = {"ok": False, "elapsed_s": 0.0, "reason": "no_urls"}
+            acc_record["download"] = {
+                "ok": False,
+                "elapsed_s": round(url_fetch_elapsed, 2),
+                "url_fetch_elapsed_s": round(url_fetch_elapsed, 2),
+                "reason": "no_urls",
+            }
+            phase_totals["download"] += url_fetch_elapsed
             details[acc] = acc_record
             continue
 
-        dl_elapsed_total = 0.0
+        dl_elapsed_total = url_fetch_elapsed
         dl_ok = True
         for url, _ in url_pairs:
             log.info(f"  Downloading: {url}")
@@ -284,7 +300,11 @@ def main() -> None:
                 dl_ok = False
                 log.error(f"  aria2c failed for {url}: {stderr_tail}")
 
-        acc_record["download"] = {"ok": dl_ok, "elapsed_s": round(dl_elapsed_total, 2)}
+        acc_record["download"] = {
+            "ok": dl_ok,
+            "elapsed_s": round(dl_elapsed_total, 2),
+            "url_fetch_elapsed_s": round(url_fetch_elapsed, 2),
+        }
         phase_totals["download"] += dl_elapsed_total
         if not dl_ok:
             details[acc] = acc_record
