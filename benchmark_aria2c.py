@@ -102,14 +102,18 @@ def _run(cmd: List[str], log: logging.Logger, timeout: int = 7200) -> Tuple[floa
 def _find_sra(sra_dir: str, acc: str) -> Optional[str]:
     """
     Locate the SRA-format file written by aria2c for the given accession.
-    Covers the same naming variants accepted by converter.py:
-    .sra, .lite.N, .N, and bare accession filenames.
+    Follows converter.py naming semantics: bare accession, .sra, .lite.N, .N.
+    Also accepts .sralite.N observed from current NCBI URLs.
     """
     candidates = [
         os.path.join(sra_dir, acc),
         os.path.join(sra_dir, acc, acc),
         os.path.join(sra_dir, f"{acc}.sra"),
         os.path.join(sra_dir, acc, f"{acc}.sra"),
+        os.path.join(sra_dir, f"{acc}.sralite.1"),
+        os.path.join(sra_dir, acc, f"{acc}.sralite.1"),
+        os.path.join(sra_dir, f"{acc}.sralite.2"),
+        os.path.join(sra_dir, acc, f"{acc}.sralite.2"),
         os.path.join(sra_dir, f"{acc}.1"),
         os.path.join(sra_dir, acc, f"{acc}.1"),
         os.path.join(sra_dir, f"{acc}.2"),
@@ -120,7 +124,7 @@ def _find_sra(sra_dir: str, acc: str) -> Optional[str]:
             return c
 
     sra_file_re = re.compile(
-        rf"(?:^|/){re.escape(acc)}(?:\.sra|\.lite\.\d+|\.\d+)?$",
+        rf"(?:^|/){re.escape(acc)}(?:\.sra|\.lite\.\d+|\.\d+|\.sralite\.\d+)?$",
         re.IGNORECASE,
     )
     matches = []
@@ -271,6 +275,14 @@ def main():
         conv_details[acc] = {"ok": ok, "elapsed_s": round(elapsed, 2)}
         log.info(f"  fasterq-dump {acc}: {'OK' if ok else 'FAILED'} in {elapsed:.1f}s")
 
+        if ok:
+            # Stage cleanup: remove source SRA after successful fasterq-dump.
+            try:
+                if os.path.exists(sra_path):
+                    os.remove(sra_path)
+            except OSError as e:
+                log.warning(f"  Converted but could not remove SRA for {acc}: {e}")
+
     t_conv_end = time.time()
     conversion_time = t_conv_end - t_conv_start
     log.info(f"Phase 2 complete: {conversion_time:.1f}s total")
@@ -291,11 +303,22 @@ def main():
     for fq in fastq_files:
         out_gz = os.path.join(args.out_dir, fq.name + ".gz")
         elapsed, ok, _ = _run([
-            "pigz", "-p", str(args.threads), str(fq),
+            "pigz", "-1", "-p", str(args.threads), str(fq),
         ], log)
         gz_src = str(fq) + ".gz"
         if ok and os.path.exists(gz_src):
             shutil.move(gz_src, out_gz)
+            # Ensure source .gz does not linger after move completion.
+            if os.path.exists(gz_src):
+                os.remove(gz_src)
+
+        # pigz usually removes input .fastq on success; enforce cleanup if it remains.
+        if ok and fq.exists():
+            try:
+                fq.unlink()
+            except OSError as e:
+                log.warning(f"  Compressed but could not remove FASTQ {fq}: {e}")
+
         comp_details[fq.name] = {"ok": ok, "elapsed_s": round(elapsed, 2)}
         log.info(f"  pigz {fq.name}: {'OK' if ok else 'FAILED'} in {elapsed:.1f}s")
 
