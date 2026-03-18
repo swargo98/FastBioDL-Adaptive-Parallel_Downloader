@@ -175,6 +175,10 @@ class AdmissionGate:
         Block until CPU < cpu_threshold AND NVMe < nvme_threshold.
         Returns True when admission is granted, False if stop_event is set.
         """
+        # Require saturation for multiple consecutive samples to avoid
+        # blocking launches on one-sample utilization spikes.
+        consecutive_over = 0
+
         while True:
             if stop_event and stop_event.is_set():
                 return False
@@ -192,7 +196,12 @@ class AdmissionGate:
             self.last_nvme_util = nvme_util
 
             if cpu_util < self.cpu_threshold and nvme_util < self.nvme_threshold:
+                consecutive_over = 0
                 return True
+
+            consecutive_over += 1
+            if consecutive_over < 2:
+                continue
 
             logging.debug(
                 f"[AdmissionGate] Waiting — CPU: {cpu_util}%, "
@@ -1003,22 +1012,29 @@ class SRAConverter:
             # The dispatcher only exits via the sentinel from now on, so
             # pass stop_event=None — we no longer want the gate to abort
             # mid-drain (that was the original Bug #6 root cause).
-            granted = gate.admit(stop_event=None)
-            if not granted:
-                # Should never happen now that we pass stop_event=None,
-                # but keep as a last-resort safety net.
-                logging.warning(
-                    f"[SRAConverter] AdmissionGate returned False unexpectedly for "
-                    f"{os.path.basename(sra_path)} — requeueing"
+            # Never gate the first running job: with no concurrent conversion,
+            # there is nothing for the gate to arbitrate.
+            if self._active_jobs.value > 0:
+                granted = gate.admit(stop_event=None)
+                if not granted:
+                    # Should never happen now that we pass stop_event=None,
+                    # but keep as a last-resort safety net.
+                    logging.warning(
+                        f"[SRAConverter] AdmissionGate returned False unexpectedly for "
+                        f"{os.path.basename(sra_path)} — requeueing"
+                    )
+                    self.processing_queue.put(sra_path)
+                    continue
+                logging.info(
+                    f"[SRAConverter] Admission granted "
+                    f"(CPU {gate.last_cpu_util}%, NVMe {gate.last_nvme_util}%) "
+                    f"— launching job for {os.path.basename(sra_path)}"
                 )
-                self.processing_queue.put(sra_path)
-                continue
-
-            logging.info(
-                f"[SRAConverter] Admission granted "
-                f"(CPU {gate.last_cpu_util}%, NVMe {gate.last_nvme_util}%) "
-                f"— launching job for {os.path.basename(sra_path)}"
-            )
+            else:
+                logging.info(
+                    f"[SRAConverter] Admission gate bypassed (active jobs: 0) "
+                    f"— launching first job for {os.path.basename(sra_path)}"
+                )
 
             # ── (e) launch worker process ───────────────────────────────────
             self._job_id_counter += 1
