@@ -1062,7 +1062,7 @@ if __name__ == '__main__':
         nvme_device="nvme0n1",
         threads_per_job=configurations.get("conversion_threads", 8),
         cpu_threshold=configurations.get("cpu_threshold", 85.0),
-        nvme_threshold=configurations.get("nvme_threshold", 80.0),
+        nvme_threshold=configurations.get("nvme_threshold", 92.0),
         max_jobs=configurations.get("max_conversion_jobs", None),
         required_size_factor=configurations.get(
             "conversion_required_factor",

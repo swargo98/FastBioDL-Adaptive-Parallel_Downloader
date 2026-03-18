@@ -18,7 +18,7 @@ Usage (from fastbiodl_upgrade.py):
         nvme_device="nvme0n1",
         threads_per_job=4,
         cpu_threshold=85.0,
-        nvme_threshold=80.0,
+        nvme_threshold=92.0,
         max_jobs=None,        # None = cpu_count (soft sanity ceiling only)
         probing_sec=5,
     )
@@ -153,7 +153,7 @@ class AdmissionGate:
         self,
         nvme_device: str,
         cpu_threshold: float = 85.0,
-        nvme_threshold: float = 80.0,
+        nvme_threshold: float = 92.0,
         poll_interval: float = 1.0,
     ):
         self.nvme_device    = nvme_device
@@ -565,7 +565,7 @@ class SRAConverter:
     cpu_threshold : float
         CPU % ceiling for admission gate (default 85.0).
     nvme_threshold : float
-        NVMe utilization % ceiling for admission gate (default 80.0).
+        NVMe utilization % ceiling for admission gate (default 92.0).
     max_jobs : int | None
         Hard sanity ceiling on concurrent jobs.  None → cpu_count.
     required_size_factor : float
@@ -596,7 +596,7 @@ class SRAConverter:
         nvme_device: str = "nvme0n1",
         threads_per_job: int = 8,
         cpu_threshold: float = 85.0,
-        nvme_threshold: float = 80.0,
+        nvme_threshold: float = 92.0,
         max_jobs: Optional[int] = None,
         required_size_factor: float = 10.0,
         reserve_size_factor: float = 8.0,
