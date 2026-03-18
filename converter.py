@@ -67,6 +67,14 @@ from typing import Optional
 # System metric helpers
 #############################
 
+def _human_bytes(num_bytes: int) -> str:
+    """Format byte counts for readable logging."""
+    value = float(max(0, num_bytes))
+    for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
+        if value < 1024.0 or unit == "PB":
+            return f"{value:.2f}{unit}"
+        value /= 1024.0
+
 def _read_cpu_times():
     """
     Read aggregate CPU times from /proc/stat.
@@ -213,6 +221,8 @@ def _conversion_worker(
     threads: int,
     result_queue: mp.Queue,
     byte_counter: mp.Value,
+    removed_sra_counter: mp.Value,
+    removed_fastq_counter: mp.Value,
 ):
     """
     Runs fasterq-dump on one .sra file, then compresses output with pigz.
@@ -279,6 +289,23 @@ def _conversion_worker(
     _cleanup_dir(job_temp_dir)
 
     t_fasterq_done = time.time()   # ← benchmark timing: fasterq-dump finished
+
+    # Delete source SRA immediately after fasterq-dump is done to free space
+    # before pigz starts. This intentionally prioritizes disk headroom over
+    # post-fasterq failure recovery.
+    try:
+        removed_size = os.path.getsize(sra_path)
+        os.remove(sra_path)
+        with removed_sra_counter.get_lock():
+            removed_sra_counter.value += removed_size
+            removed_total = removed_sra_counter.value
+        logging.info(
+            f"[Converter #{job_id}] Removed source .sra after fasterq-dump: {sra_path} "
+            f"({_human_bytes(removed_size)}, total {_human_bytes(removed_total)})"
+        )
+    except OSError as e:
+        logging.warning(f"[Converter #{job_id}] Could not remove {sra_path} after fasterq-dump: {e}")
+
     logging.info(f"[Converter #{job_id}] fasterq-dump done for {accession}, compressing ...")
 
     # ── Step 2: pigz compress each .fastq output ──────────────────────────────
@@ -296,6 +323,7 @@ def _conversion_worker(
         return
 
     fastq_gz_files = []
+    removed_fastq_bytes_job = 0
     t_pigz_start = time.time()   # ← benchmark timing: pigz started (all jobs launched simultaneously)
     # Launch all pigz processes simultaneously
     procs = {
@@ -347,6 +375,22 @@ def _conversion_worker(
                 return
             if os.path.exists(gz_path):
                 fastq_gz_files.append(gz_path)
+
+            # pigz normally removes the source .fastq, but enforce cleanup
+            # explicitly so this phase always leaves only .fastq.gz outputs.
+            if os.path.exists(fq):
+                try:
+                    removed_size = os.path.getsize(fq)
+                    os.remove(fq)
+                    removed_fastq_bytes_job += removed_size
+                    with removed_fastq_counter.get_lock():
+                        removed_fastq_counter.value += removed_size
+                    logging.info(
+                        f"[Converter #{job_id}] Removed source FASTQ after compression: {fq} "
+                        f"({_human_bytes(removed_size)})"
+                    )
+                except OSError as e:
+                    logging.warning(f"[Converter #{job_id}] Could not remove source FASTQ {fq}: {e}")
         except subprocess.TimeoutExpired:
             logging.error(f"[Converter #{job_id}] pigz timed out for {fq}")
             _cleanup_dir(acc_fastq_dir)
@@ -363,6 +407,11 @@ def _conversion_worker(
         f"[Converter #{job_id}] Completed {accession}: "
         f"{[os.path.basename(f) for f in fastq_gz_files]}"
     )
+    if removed_fastq_bytes_job > 0:
+        logging.info(
+            f"[Converter #{job_id}] Compression cleanup reclaimed "
+            f"{_human_bytes(removed_fastq_bytes_job)} for {accession}"
+        )
     result_queue.put((sra_path, fastq_gz_files, True,
                       t_fasterq_start, t_fasterq_done,
                       t_pigz_start, t_pigz_done))
@@ -390,7 +439,7 @@ def _report_conversion_throughput(
     t = time.time()
     fname = os.path.join(
         log_dir,
-        f"log_conversion_{datetime.datetime.fromtimestamp(t).strftime('%Y%m%d_%H%M%S')}.csv"
+        f"fastbiodl/log_conversion_{datetime.datetime.fromtimestamp(t).strftime('%Y%m%d_%H%M%S')}.csv"
     )
     
     try:
@@ -508,11 +557,18 @@ class SRAConverter:
         NVMe utilization % ceiling for admission gate (default 80.0).
     max_jobs : int | None
         Hard sanity ceiling on concurrent jobs.  None → cpu_count.
-    output_size_factor : float
-        Estimated FASTQ expansion factor relative to SRA size for admission.
-        Example: 10.0 means require 10x SRA bytes as free disk space.
+    required_size_factor : float
+        Required free-space factor relative to incoming SRA size.
+        Admission rule uses: (free_bytes - reserved_bytes) >=
+        (required_size_factor * sra_size + safety_margin).
+    reserve_size_factor : float
+        Reservation factor charged to the shared reservation counter at job
+        launch and released on completion. Example: 8.0 means reserve 8x SRA.
     disk_safety_margin_gb : float
         Extra free-space buffer (GB) added to each admission decision.
+    output_size_factor : float | None
+        Legacy alias for required_size_factor. If provided, it overrides the
+        default required factor unless required_size_factor is explicitly set.
     probing_sec : float
         Poll interval inside admission gate (seconds).
     """
@@ -527,8 +583,10 @@ class SRAConverter:
         cpu_threshold: float = 85.0,
         nvme_threshold: float = 80.0,
         max_jobs: Optional[int] = None,
-        output_size_factor: float = 10.0,
-        disk_safety_margin_gb: float = 1.0,
+        required_size_factor: float = 10.0,
+        reserve_size_factor: float = 8.0,
+        disk_safety_margin_gb: float = 0.0,
+        output_size_factor: Optional[float] = None,
         probing_sec: float = 1.0,
     ):
         self.processing_queue = processing_queue
@@ -541,7 +599,13 @@ class SRAConverter:
         self.cpu_threshold    = cpu_threshold
         self.nvme_threshold   = nvme_threshold
         self.max_jobs         = max_jobs or mp.cpu_count()
-        self.output_size_factor = max(1.0, float(output_size_factor))
+
+        # Backward compatibility: older call sites passed output_size_factor.
+        if output_size_factor is not None and required_size_factor == 10.0:
+            required_size_factor = float(output_size_factor)
+
+        self.required_size_factor = max(1.0, float(required_size_factor))
+        self.reserve_size_factor = max(0.0, float(reserve_size_factor))
         self.disk_safety_margin_bytes = max(0, int(float(disk_safety_margin_gb) * (1024 ** 3)))
         self.probing_sec      = probing_sec
 
@@ -550,6 +614,8 @@ class SRAConverter:
         self._byte_counter    = mp.Value("Q", 0)   # unsigned 64-bit
         self._converted_count = mp.Value("i", 0)
         self._failed_count    = mp.Value("i", 0)
+        self._removed_sra_bytes = mp.Value("Q", 0)
+        self._removed_fastq_bytes = mp.Value("Q", 0)
 
         # Benchmark timing: per-phase epoch timestamps aggregated across all jobs.
         # "first_start" tracks the earliest start (min), "last_done" the latest
@@ -623,14 +689,15 @@ class SRAConverter:
             f"nvme_device={self.nvme_device}, "
             f"cpu_threshold={self.cpu_threshold}%, "
             f"nvme_threshold={self.nvme_threshold}%, "
-            f"output_size_factor={self.output_size_factor}x, "
+            f"required_size_factor={self.required_size_factor}x, "
+            f"reserve_size_factor={self.reserve_size_factor}x, "
             f"disk_safety_margin_gb={round(self.disk_safety_margin_bytes / (1024 ** 3), 2)}"
         )
 
-    def _estimate_required_free_bytes(self, sra_path: str) -> int:
+    def _estimate_space_targets(self, sra_path: str) -> tuple:
         """
-        Estimate required free disk bytes for converting one SRA file.
-        Rule: required = sra_size * output_size_factor + safety_margin.
+        Estimate disk-space values for one conversion job.
+        Returns (sra_size_bytes, required_bytes, reserved_bytes).
         """
         try:
             sra_size = os.path.getsize(sra_path)
@@ -641,12 +708,14 @@ class SRAConverter:
             )
             sra_size = 0
 
-        return int(sra_size * self.output_size_factor) + self.disk_safety_margin_bytes
+        required_bytes = int(sra_size * self.required_size_factor) + self.disk_safety_margin_bytes
+        reserved_bytes = int(sra_size * self.reserve_size_factor)
+        return sra_size, required_bytes, reserved_bytes
 
-    def _wait_for_disk_headroom(self, sra_path: str, required_free_bytes: int):
+    def _wait_for_disk_headroom(self, sra_path: str, required_bytes: int, sra_size: int):
         """
-        Block until work_dir filesystem has enough free space to cover
-        current reservations plus this job's expected footprint.
+        Block until logical disk admission passes.
+        Rule: (free_bytes - reserved_before) >= required_bytes.
         """
         wait_cycles = 0
         while True:
@@ -660,18 +729,19 @@ class SRAConverter:
                 continue
 
             with self._disk_reserved_bytes.get_lock():
-                reserved_bytes = int(self._disk_reserved_bytes.value)
+                reserved_before = int(self._disk_reserved_bytes.value)
 
-            needed_bytes = reserved_bytes + required_free_bytes
+            effective_free = max(0, free_bytes - reserved_before)
 
-            if free_bytes >= needed_bytes:
+            if effective_free >= required_bytes:
                 if wait_cycles > 0:
                     logging.info(
                         f"[SRAConverter] Disk admission granted for {os.path.basename(sra_path)} "
-                        f"(free {free_bytes / (1024 ** 3):.2f}GB >= "
-                        f"needed {needed_bytes / (1024 ** 3):.2f}GB "
-                        f"[reserved {reserved_bytes / (1024 ** 3):.2f}GB + "
-                        f"new {required_free_bytes / (1024 ** 3):.2f}GB])"
+                        f"(free-reserved {effective_free / (1024 ** 3):.2f}GB >= "
+                        f"required {required_bytes / (1024 ** 3):.2f}GB; "
+                        f"sra={sra_size / (1024 ** 3):.2f}GB, "
+                        f"free={free_bytes / (1024 ** 3):.2f}GB, "
+                        f"reserved={reserved_before / (1024 ** 3):.2f}GB)"
                     )
                 return
 
@@ -680,21 +750,23 @@ class SRAConverter:
             if wait_cycles == 1 or wait_cycles % 5 == 0:
                 logging.info(
                     f"[SRAConverter] Waiting for disk space for {os.path.basename(sra_path)} "
-                    f"(free {free_bytes / (1024 ** 3):.2f}GB < "
-                    f"needed {needed_bytes / (1024 ** 3):.2f}GB "
-                    f"[reserved {reserved_bytes / (1024 ** 3):.2f}GB + "
-                    f"new {required_free_bytes / (1024 ** 3):.2f}GB])"
+                    f"(free-reserved {effective_free / (1024 ** 3):.2f}GB < "
+                    f"required {required_bytes / (1024 ** 3):.2f}GB; "
+                    f"sra={sra_size / (1024 ** 3):.2f}GB, "
+                    f"free={free_bytes / (1024 ** 3):.2f}GB, "
+                    f"reserved={reserved_before / (1024 ** 3):.2f}GB)"
                 )
             time.sleep(self.probing_sec)
 
-    def _reserve_disk_for_job(self, sra_path: str, reserved_bytes: int):
+    def _reserve_disk_for_job(self, sra_path: str, reserved_bytes: int) -> int:
         """Register reserved bytes for a job after admission, before launch."""
         with self._reserve_lock:
             self._reserved_by_sra[sra_path] = reserved_bytes
             with self._disk_reserved_bytes.get_lock():
                 self._disk_reserved_bytes.value += reserved_bytes
+                return int(self._disk_reserved_bytes.value)
 
-    def _release_disk_reservation(self, sra_path: str):
+    def _release_disk_reservation(self, sra_path: str) -> int:
         """Release reserved bytes once job result has been collected."""
         with self._reserve_lock:
             reserved_bytes = self._reserved_by_sra.pop(sra_path, 0)
@@ -704,6 +776,7 @@ class SRAConverter:
                         0,
                         self._disk_reserved_bytes.value - reserved_bytes,
                     )
+            return int(reserved_bytes)
 
     def stop(self, timeout: float = 7200.0):
         """
@@ -768,7 +841,9 @@ class SRAConverter:
         logging.info(
             f"[SRAConverter] Stopped — "
             f"converted={self._converted_count.value}, "
-            f"failed={self._failed_count.value}"
+            f"failed={self._failed_count.value}, "
+            f"cleanup_sra={_human_bytes(self._removed_sra_bytes.value)}, "
+            f"cleanup_fastq={_human_bytes(self._removed_fastq_bytes.value)}"
         )
 
     @property
@@ -855,8 +930,8 @@ class SRAConverter:
                 time.sleep(0.5)
 
             # ── (c) disk admission — ensure enough NVMe free space ──────────
-            required_free_bytes = self._estimate_required_free_bytes(sra_path)
-            self._wait_for_disk_headroom(sra_path, required_free_bytes)
+            sra_size, required_bytes, reserved_bytes = self._estimate_space_targets(sra_path)
+            self._wait_for_disk_headroom(sra_path, required_bytes, sra_size)
 
             # ── (d) admission gate — wait for CPU + NVMe headroom ──────────
             # The dispatcher only exits via the sentinel from now on, so
@@ -896,10 +971,12 @@ class SRAConverter:
                     self.threads_per_job,
                     self._result_queue,
                     self._byte_counter,
+                    self._removed_sra_bytes,
+                    self._removed_fastq_bytes,
                 ),
                 daemon=False,   # FIX [Img #5]
             )
-            self._reserve_disk_for_job(sra_path, required_free_bytes)
+            reserved_after = self._reserve_disk_for_job(sra_path, reserved_bytes)
             try:
                 p.start()
             except Exception:
@@ -915,7 +992,10 @@ class SRAConverter:
 
             logging.info(
                 f"[SRAConverter] Job #{job_id} started for {os.path.basename(sra_path)} "
-                f"(active jobs: {self._active_jobs.value})"
+                f"(active jobs: {self._active_jobs.value}, "
+                f"required={required_bytes / (1024 ** 3):.2f}GB, "
+                f"reserved_added={reserved_bytes / (1024 ** 3):.2f}GB, "
+                f"reserved_total={reserved_after / (1024 ** 3):.2f}GB)"
             )
 
         # Reached only if _stop_event fired before a sentinel arrived (e.g. SIGINT).
@@ -925,8 +1005,9 @@ class SRAConverter:
     def _result_collector_loop(self):
         """
         Drains _result_queue.
-        On success: pushes each fastq.gz path to move_queue, deletes .sra.
-        On failure: logs the error, .sra stays for manual inspection.
+        On success: pushes each fastq.gz path to move_queue.
+        On failure: logs the error; for post-fasterq failures the .sra may
+        already be deleted because cleanup now happens right after fasterq-dump.
         Decrements active_jobs counter.
         """
         while not self._stop_event.is_set() or self._active_jobs.value > 0:
@@ -977,7 +1058,15 @@ class SRAConverter:
             self._active_jobs.value = max(0, self._active_jobs.value - 1)
 
         # Release disk reservation for this job as soon as result is collected.
-        self._release_disk_reservation(sra_path)
+        released_reserved = self._release_disk_reservation(sra_path)
+        if released_reserved > 0:
+            with self._disk_reserved_bytes.get_lock():
+                reserved_left = int(self._disk_reserved_bytes.value)
+            logging.info(
+                f"[SRAConverter] Released disk reservation for {os.path.basename(sra_path)}: "
+                f"{released_reserved / (1024 ** 3):.2f}GB "
+                f"(remaining reserved {reserved_left / (1024 ** 3):.2f}GB)"
+            )
 
         # fasterq-dump window ─────────────────────────────────────────────────
         if t_fasterq_start > 0.0:
@@ -1017,19 +1106,12 @@ class SRAConverter:
                 self.move_queue.put(gz_path)
                 logging.info(f"[SRAConverter] → move_queue: {gz_path}")
 
-            # Remove .sra to free space once all .fastq.gz are safely queued.
-            try:
-                os.remove(sra_path)
-                logging.info(f"[SRAConverter] Removed source .sra: {sra_path}")
-            except OSError as e:
-                logging.warning(f"[SRAConverter] Could not remove {sra_path}: {e}")
-
         else:
             with self._failed_count.get_lock():
                 self._failed_count.value += 1
             logging.error(
                 f"[SRAConverter] Conversion failed for {sra_path}, "
-                f"leaving file for inspection"
+                f"source SRA may already be removed after fasterq-dump"
             )
 
         logging.info(

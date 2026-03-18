@@ -8,8 +8,11 @@ configurations = {
     "thread_limit": 15,
     "max_conversion_jobs": 8,
     "conversion_threads": 4,
+    "conversion_required_factor": 10.0,
+    "conversion_reserve_factor": 10.5,
+    # Legacy alias kept for backward compatibility with older call sites.
     "conversion_output_factor": 10.0,
-    "conversion_disk_safety_margin_gb": 1.0,
+    "conversion_disk_safety_margin_gb": 0.0,
     "K": 1.02,
     "probing_sec": 5, # probing interval in seconds
     "ncbi_lookup_rps": 2.0,

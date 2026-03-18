@@ -10,7 +10,7 @@ import numpy as np
 import multiprocessing as mp
 from threading import Thread
 from config_fastbiodl import configurations
-from utils import available_space, get_dir_size, run
+from utils import available_space, get_dir_size
 from search import base_optimizer,gradient_opt_fast, exit_signal
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -25,6 +25,15 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 #   PRODUCTION : root_dir = "/mnt/nvme0n1/fastbiodl/staging/"
 #   BENCHMARK  : root_dir = "/mnt/disk/benchmark/fastbiodl/output/"
 BENCHMARK_ROOT_DIR = "fastbiodl/output/"
+
+
+def _human_bytes(num_bytes):
+    """Format byte counts for readable logging."""
+    value = float(max(0, num_bytes))
+    for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
+        if value < 1024.0 or unit == "PB":
+            return f"{value:.2f}{unit}"
+        value /= 1024.0
 
 
 def move_file(process_id):
@@ -42,11 +51,12 @@ def move_file(process_id):
 
             try:
                 fname = mQueue.pop()
+                source_path = os.path.join(tmpfs_dir_g, fname)
                 dest_path = os.path.join(root_dir_g, fname)
                 os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                fd = os.open(os.path.join(root_dir_g, fname), os.O_CREAT | os.O_RDWR)
+                fd = os.open(dest_path, os.O_CREAT | os.O_RDWR | os.O_TRUNC)
 
-                with open(os.path.join(tmpfs_dir_g, fname), "rb") as ff:
+                with open(source_path, "rb") as ff:
                     chunk, offset = ff.read(block_size), 0
                     if fname in io_file_offsets:
                         offset = int(io_file_offsets[fname])
@@ -75,8 +85,18 @@ def move_file(process_id):
                         with move_complete.get_lock():
                             move_complete.value += 1
                         logger.debug(f'I/O :: {fname}')
-                        run(f'rm {tmpfs_dir_g}{fname}', logger)
-                        logger.debug(f'Cleanup :: {fname}')
+                        try:
+                            removed_size = os.path.getsize(source_path)
+                            os.remove(source_path)
+                            with removed_compressed_bytes.get_lock():
+                                removed_compressed_bytes.value += removed_size
+                                removed_total = removed_compressed_bytes.value
+                            logger.info(
+                                f"[move_file #{process_id}] Removed staged compressed file: {source_path} "
+                                f"({_human_bytes(removed_size)}, total {_human_bytes(removed_total)})"
+                            )
+                        except OSError as e:
+                            logger.warning(f"[move_file #{process_id}] Could not remove source {source_path}: {e}")
 
                 os.close(fd)
 
@@ -224,6 +244,7 @@ class FileMover:
         global transfer_complete, move_complete, transfer_done
         global io_process_status, transfer_file_offsets, io_file_offsets
         global io_throughput_logs, mQueue, start, chunk_size
+        global removed_compressed_bytes
         global probing_time, io_limit
 
         tmpfs_dir_g  = tmpfs_dir
@@ -238,6 +259,7 @@ class FileMover:
         transfer_complete       = mp.Value("i", 0)
         move_complete           = mp.Value("i", 0)
         transfer_done           = mp.Value("i", 0)
+        removed_compressed_bytes = mp.Value("Q", 0)
         io_process_status       = mp.Array("i", [0] * num_workers)
         transfer_file_offsets   = mgr.dict()
         io_file_offsets         = mgr.dict()
@@ -318,5 +340,6 @@ class FileMover:
                 p.join(timeout=1)
 
         logger.info(
-            f"[FileMover] Done — moved {move_complete.value}/{transfer_complete.value} files"
+            f"[FileMover] Done — moved {move_complete.value}/{transfer_complete.value} files, "
+            f"cleanup_compressed={_human_bytes(removed_compressed_bytes.value)}"
         )
