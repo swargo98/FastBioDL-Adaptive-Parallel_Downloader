@@ -216,10 +216,12 @@ def _cleanup_dir(path: str):
 def _conversion_worker(
     job_id: int,
     sra_path: str,
+    sra_size: int,
     fastq_dir: str,
     temp_dir: str,
     threads: int,
     result_queue: mp.Queue,
+    phase_queue: mp.Queue,
     byte_counter: mp.Value,
     removed_sra_counter: mp.Value,
     removed_fastq_counter: mp.Value,
@@ -290,6 +292,15 @@ def _conversion_worker(
 
     t_fasterq_done = time.time()   # ← benchmark timing: fasterq-dump finished
 
+    # Notify the parent process that this job has transitioned to pigz.
+    # At this point the job no longer needs full fasterq expansion headroom.
+    try:
+        phase_queue.put(("PIGZ_START", sra_path, int(sra_size)))
+    except Exception as e:
+        logging.warning(
+            f"[Converter #{job_id}] Could not publish phase transition for {accession}: {e}"
+        )
+
     # Delete source SRA immediately after fasterq-dump is done to free space
     # before pigz starts. This intentionally prioritizes disk headroom over
     # post-fasterq failure recovery.
@@ -328,7 +339,7 @@ def _conversion_worker(
     # Launch all pigz processes simultaneously
     procs = {
         fq: subprocess.Popen(
-            ["pigz", "-p", str(max(1, threads)), fq],
+            ["pigz", "-1", "-p", str(max(1, threads)), fq],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         for fq in fastq_files
@@ -564,6 +575,10 @@ class SRAConverter:
     reserve_size_factor : float
         Reservation factor charged to the shared reservation counter at job
         launch and released on completion. Example: 8.0 means reserve 8x SRA.
+    pigz_reserve_factor : float
+        Reservation factor applied once a job enters pigz compression.
+        This should be lower than reserve_size_factor because fasterq scratch
+        pressure has ended and only compressed outputs remain in-flight.
     disk_safety_margin_gb : float
         Extra free-space buffer (GB) added to each admission decision.
     output_size_factor : float | None
@@ -585,6 +600,7 @@ class SRAConverter:
         max_jobs: Optional[int] = None,
         required_size_factor: float = 10.0,
         reserve_size_factor: float = 8.0,
+        pigz_reserve_factor: float = 3.0,
         disk_safety_margin_gb: float = 0.0,
         output_size_factor: Optional[float] = None,
         probing_sec: float = 1.0,
@@ -606,6 +622,7 @@ class SRAConverter:
 
         self.required_size_factor = max(1.0, float(required_size_factor))
         self.reserve_size_factor = max(0.0, float(reserve_size_factor))
+        self.pigz_reserve_factor = max(0.0, float(pigz_reserve_factor))
         self.disk_safety_margin_bytes = max(0, int(float(disk_safety_margin_gb) * (1024 ** 3)))
         self.probing_sec      = probing_sec
 
@@ -629,6 +646,7 @@ class SRAConverter:
 
         # Result queue from worker processes → collector
         self._result_queue    = mp.Queue()
+        self._phase_queue     = mp.Queue()
 
         # Throughput tracking
         self._throughput_logs = deque(maxlen=10000)
@@ -663,6 +681,7 @@ class SRAConverter:
     def start(self):
         """Start dispatcher, result collector, and throughput reporter threads."""
         t_dispatch = Thread(target=self._dispatcher_loop,        name="conv-dispatcher", daemon=True)
+        t_phase    = Thread(target=self._phase_listener,         name="conv-phase",      daemon=True)
         t_collect  = Thread(target=self._result_collector_loop,  name="conv-collector",  daemon=True)
         t_report   = Thread(
             target=_report_conversion_throughput,
@@ -679,7 +698,7 @@ class SRAConverter:
             daemon=True,
         )
 
-        for t in (t_dispatch, t_collect, t_report):
+        for t in (t_dispatch, t_phase, t_collect, t_report):
             t.start()
             self._threads.append(t)
 
@@ -691,6 +710,7 @@ class SRAConverter:
             f"nvme_threshold={self.nvme_threshold}%, "
             f"required_size_factor={self.required_size_factor}x, "
             f"reserve_size_factor={self.reserve_size_factor}x, "
+            f"pigz_reserve_factor={self.pigz_reserve_factor}x, "
             f"disk_safety_margin_gb={round(self.disk_safety_margin_bytes / (1024 ** 3), 2)}"
         )
 
@@ -778,6 +798,48 @@ class SRAConverter:
                     )
             return int(reserved_bytes)
 
+    def _reduce_disk_reservation_for_pigz(self, sra_path: str, sra_size: int):
+        """Reduce reservation for jobs that moved from fasterq-dump to pigz."""
+        new_reserved = int(max(0, sra_size) * self.pigz_reserve_factor)
+        with self._reserve_lock:
+            old_reserved = int(self._reserved_by_sra.get(sra_path, 0))
+            delta = old_reserved - new_reserved
+            if delta <= 0:
+                return
+
+            self._reserved_by_sra[sra_path] = new_reserved
+            with self._disk_reserved_bytes.get_lock():
+                self._disk_reserved_bytes.value = max(0, self._disk_reserved_bytes.value - delta)
+
+        logging.info(
+            f"[SRAConverter] Phase transition for {os.path.basename(sra_path)}: "
+            f"reservation {old_reserved / (1024 ** 3):.2f}GB -> "
+            f"{new_reserved / (1024 ** 3):.2f}GB "
+            f"(released {delta / (1024 ** 3):.2f}GB)"
+        )
+
+    def _drain_phase_queue(self):
+        """Drain queued phase transitions so reservation state stays consistent."""
+        while True:
+            try:
+                tag, sra_path, sra_size = self._phase_queue.get_nowait()
+                if tag == "PIGZ_START":
+                    self._reduce_disk_reservation_for_pigz(sra_path, int(sra_size))
+            except queue.Empty:
+                break
+
+    def _phase_listener(self):
+        """Process worker phase-transition events during conversion."""
+        while not self._stop_event.is_set() or self._active_jobs.value > 0:
+            try:
+                tag, sra_path, sra_size = self._phase_queue.get(timeout=1.0)
+                if tag == "PIGZ_START":
+                    self._reduce_disk_reservation_for_pigz(sra_path, int(sra_size))
+            except queue.Empty:
+                continue
+
+        self._drain_phase_queue()
+
     def stop(self, timeout: float = 7200.0):
         """
         Signal all threads to stop and wait for in-flight conversions to finish.
@@ -830,6 +892,10 @@ class SRAConverter:
         # Join management threads (they will have exited or be close to it).
         for t in self._threads:
             t.join(timeout=10.0)
+
+        # Process any phase events that raced with shutdown so reservation
+        # accounting does not miss the final transition updates.
+        self._drain_phase_queue()
 
         # Reap worker procs — only terminate those still alive after the wait.
         with self._procs_lock:
@@ -966,10 +1032,12 @@ class SRAConverter:
                 args=(
                     job_id,
                     sra_path,
+                    sra_size,
                     self.fastq_dir,
                     self.temp_dir,
                     self.threads_per_job,
                     self._result_queue,
+                    self._phase_queue,
                     self._byte_counter,
                     self._removed_sra_bytes,
                     self._removed_fastq_bytes,

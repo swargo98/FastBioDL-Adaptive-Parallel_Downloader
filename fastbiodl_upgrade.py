@@ -1069,6 +1069,7 @@ if __name__ == '__main__':
             configurations.get("conversion_output_factor", 10.0),
         ),
         reserve_size_factor=configurations.get("conversion_reserve_factor", 8.0),
+        pigz_reserve_factor=configurations.get("conversion_pigz_reserve_factor", 3.0),
         disk_safety_margin_gb=configurations.get("conversion_disk_safety_margin_gb", 0.0),
     )
     converter.start()

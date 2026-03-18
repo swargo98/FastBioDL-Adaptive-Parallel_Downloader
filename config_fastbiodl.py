@@ -10,6 +10,7 @@ configurations = {
     "conversion_threads": 4,
     "conversion_required_factor": 10.0,
     "conversion_reserve_factor": 10.5,
+    "conversion_pigz_reserve_factor": 3.5,
     # Legacy alias kept for backward compatibility with older call sites.
     "conversion_output_factor": 10.0,
     "conversion_disk_safety_margin_gb": 0.0,
