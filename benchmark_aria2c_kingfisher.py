@@ -264,6 +264,14 @@ def main() -> None:
             "ok": False,
         }
 
+        acc_sra_dir = os.path.join(args.sra_dir, acc)
+        acc_fastq_dir = os.path.join(args.fastq_dir, acc)
+
+        shutil.rmtree(acc_sra_dir, ignore_errors=True)
+        shutil.rmtree(acc_fastq_dir, ignore_errors=True)
+        os.makedirs(acc_sra_dir, exist_ok=True)
+        os.makedirs(acc_fastq_dir, exist_ok=True)
+
         # Step 1: NCBI URL fetch + aria2c download
         t_url_start = time.time()
         try:
@@ -307,7 +315,7 @@ def main() -> None:
                 "--min-split-size=5M",
                 "--max-tries=3",
                 "--retry-wait=5",
-                f"--dir={args.sra_dir}",
+                f"--dir={acc_sra_dir}",
                 url,
             ], log)
             dl_elapsed_total += elapsed
@@ -326,7 +334,7 @@ def main() -> None:
             continue
 
         # Step 2: fasterq-dump conversion for this accession
-        sra_path = _find_sra(args.sra_dir, acc)
+        sra_path = _find_sra(acc_sra_dir, acc)
         if sra_path is None:
             log.warning(f"  SRA file not found for {acc} -- skipping conversion/compression")
             acc_record["conversion"] = {
@@ -336,9 +344,6 @@ def main() -> None:
             }
             details[acc] = acc_record
             continue
-
-        acc_fastq_dir = os.path.join(args.fastq_dir, acc)
-        os.makedirs(acc_fastq_dir, exist_ok=True)
 
         conv_elapsed, conv_ok, conv_err = _run([
             "fasterq-dump",
@@ -384,6 +389,9 @@ def main() -> None:
 
         acc_record["ok"] = dl_ok and conv_ok and comp_ok
         details[acc] = acc_record
+
+        shutil.rmtree(acc_fastq_dir, ignore_errors=True)
+        shutil.rmtree(acc_sra_dir, ignore_errors=True)
 
         log.info(
             f"  {acc} summary -- "
