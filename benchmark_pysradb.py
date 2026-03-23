@@ -171,6 +171,116 @@ def _download_one(
         }
 
 
+def _human_bytes(num_bytes: int) -> str:
+    """Format byte counts for readable logs."""
+    value = float(max(0, num_bytes))
+    for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
+        if value < 1024.0 or unit == "PB":
+            return f"{value:.2f}{unit}"
+        value /= 1024.0
+    return "0.00B"
+
+
+def _compress_and_move_fastq(
+    fq: Path,
+    out_dir: str,
+    threads: int,
+    log: logging.Logger,
+    comp_details: Dict[str, Dict[str, object]],
+) -> Tuple[float, bool]:
+    """Compress one FASTQ, move to out_dir, and clean up NVMe artifacts."""
+    rel_key = str(fq)
+    out_gz = os.path.join(out_dir, fq.name + ".gz")
+    elapsed, ok, stderr_tail = _run(["pigz", "-1", "-p", str(threads), str(fq)], log)
+    gz_src = str(fq) + ".gz"
+
+    if ok and os.path.exists(gz_src):
+        shutil.move(gz_src, out_gz)
+        if os.path.exists(gz_src):
+            os.remove(gz_src)
+
+    if ok and fq.exists():
+        try:
+            fq.unlink()
+        except OSError as e:
+            log.warning(f"  Compressed but could not remove FASTQ {fq}: {e}")
+
+    comp_details[rel_key] = {
+        "ok": ok,
+        "elapsed_s": round(elapsed, 2),
+        "stderr_tail": stderr_tail,
+        "out_file": out_gz,
+    }
+    log.info(f"  pigz {fq.name}: {'OK' if ok else 'FAILED'} in {elapsed:.1f}s")
+    return elapsed, ok
+
+
+def _flush_fastq_backlog(
+    fastq_dir: str,
+    out_dir: str,
+    threads: int,
+    log: logging.Logger,
+    comp_details: Dict[str, Dict[str, object]],
+) -> Tuple[int, float]:
+    """Compress/move every pending .fastq one-by-one to free NVMe space."""
+    pending = sorted(Path(fastq_dir).rglob("*.fastq"))
+    if not pending:
+        return 0, 0.0
+
+    log.info(f"  Flushing {len(pending)} pending .fastq file(s) from NVMe")
+    total_elapsed = 0.0
+    for fq in pending:
+        elapsed, _ = _compress_and_move_fastq(fq, out_dir, threads, log, comp_details)
+        total_elapsed += elapsed
+    return len(pending), total_elapsed
+
+
+def _wait_for_nvme_headroom(
+    work_dir: str,
+    required_bytes: int,
+    reserved_bytes: int,
+    probing_sec: float,
+    log: logging.Logger,
+    fastq_dir: str,
+    out_dir: str,
+    threads: int,
+    comp_details: Dict[str, Dict[str, object]],
+) -> float:
+    """
+    Block until (free - reserved) >= required.
+    While blocked, flush completed .fastq files one-by-one to reclaim NVMe space.
+    Returns time spent in compression while waiting.
+    """
+    compressed_elapsed = 0.0
+    wait_cycles = 0
+    while True:
+        free_bytes = shutil.disk_usage(work_dir).free
+        effective_free = max(0, free_bytes - reserved_bytes)
+        if effective_free >= required_bytes:
+            if wait_cycles > 0:
+                log.info(
+                    f"  Disk admission granted (free-reserved {effective_free / (1024 ** 3):.2f}GB >= "
+                    f"required {required_bytes / (1024 ** 3):.2f}GB)"
+                )
+            return compressed_elapsed
+
+        wait_cycles += 1
+        log.info(
+            f"  Waiting for NVMe headroom (free-reserved {effective_free / (1024 ** 3):.2f}GB < "
+            f"required {required_bytes / (1024 ** 3):.2f}GB; reserved {reserved_bytes / (1024 ** 3):.2f}GB)"
+        )
+        flushed, elapsed = _flush_fastq_backlog(
+            fastq_dir=fastq_dir,
+            out_dir=out_dir,
+            threads=threads,
+            log=log,
+            comp_details=comp_details,
+        )
+        compressed_elapsed += elapsed
+        if flushed == 0:
+            time.sleep(probing_sec)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -199,6 +309,14 @@ def main() -> None:
                         help="Streaming chunk size for requests.get (bytes)")
     parser.add_argument("--fastq", action="store_true",
                         help="Fetch fastq_ftp URLs instead of sra_ftp")
+    parser.add_argument("--required-size-factor", type=float, default=10.0,
+                        help="Required free-space factor before fasterq-dump")
+    parser.add_argument("--reserve-size-factor", type=float, default=8.0,
+                        help="Reserved-space factor used in free-reserved admission")
+    parser.add_argument("--disk-safety-margin-gb", type=float, default=0.0,
+                        help="Extra safety margin added to required bytes")
+    parser.add_argument("--probing-sec", type=float, default=1.0,
+                        help="Polling interval while waiting for NVMe headroom")
     parser.add_argument("--output-json",
                         help="Path for JSON results (default: auto-named with timestamp)")
     args = parser.parse_args()
@@ -338,13 +456,20 @@ def main() -> None:
     download_time = t_dl_end - t_dl_start
     log.info(f"Phase 1 complete: {download_time:.1f}s total")
 
-    # Phase 2: conversion with fasterq-dump.
+    # Phase 2/3: serial conversion + compression.
     log.info("=" * 60)
-    log.info("PHASE 2: Convert SRA -> FASTQ (fasterq-dump)")
+    log.info("PHASE 2/3: Serial fasterq-dump + pigz (no overlap)")
     log.info("=" * 60)
+
+    required_size_factor = max(1.0, float(args.required_size_factor))
+    reserve_size_factor = max(0.0, float(args.reserve_size_factor))
+    disk_safety_margin_bytes = max(0, int(float(args.disk_safety_margin_gb) * (1024 ** 3)))
 
     t_conv_start = time.time()
     conv_details: Dict[str, Dict[str, object]] = {}
+    comp_details: Dict[str, Dict[str, object]] = {}
+    conversion_time = 0.0
+    compression_time = 0.0
 
     for acc in accessions:
         sra_path = _find_sra(args.sra_dir, acc)
@@ -352,6 +477,31 @@ def main() -> None:
             log.warning(f"  SRA file not found for {acc} -- skipping conversion")
             conv_details[acc] = {"ok": False, "elapsed_s": 0.0, "reason": "sra_not_found"}
             continue
+
+        try:
+            sra_size = os.path.getsize(sra_path)
+        except OSError as e:
+            log.warning(f"  Could not stat {sra_path}; using size=0 for admission: {e}")
+            sra_size = 0
+
+        required_bytes = int(sra_size * required_size_factor) + disk_safety_margin_bytes
+        reserved_bytes = int(sra_size * reserve_size_factor)
+
+        log.info(
+            f"  Admission check for {acc}: sra={_human_bytes(sra_size)}, "
+            f"required={_human_bytes(required_bytes)}, reserved={_human_bytes(reserved_bytes)}"
+        )
+        compression_time += _wait_for_nvme_headroom(
+            work_dir=args.fastq_dir,
+            required_bytes=required_bytes,
+            reserved_bytes=reserved_bytes,
+            probing_sec=max(0.2, float(args.probing_sec)),
+            log=log,
+            fastq_dir=args.fastq_dir,
+            out_dir=args.out_dir,
+            threads=args.threads,
+            comp_details=comp_details,
+        )
 
         acc_fastq_dir = os.path.join(args.fastq_dir, acc)
         os.makedirs(acc_fastq_dir, exist_ok=True)
@@ -365,6 +515,7 @@ def main() -> None:
             "--skip-technical",
             sra_path,
         ], log)
+        conversion_time += elapsed
 
         conv_details[acc] = {
             "ok": ok,
@@ -381,52 +532,49 @@ def main() -> None:
             except OSError as e:
                 log.warning(f"  Converted but could not remove SRA for {acc}: {e}")
 
-    t_conv_end = time.time()
-    conversion_time = t_conv_end - t_conv_start
-    log.info(f"Phase 2 complete: {conversion_time:.1f}s total")
+            # Compress this accession immediately (one-by-one) so conversion and
+            # compression never overlap across multiple accessions.
+            acc_fastq_files = sorted(Path(acc_fastq_dir).glob("*.fastq"))
+            for fq in acc_fastq_files:
+                elapsed_c, _ = _compress_and_move_fastq(
+                    fq=fq,
+                    out_dir=args.out_dir,
+                    threads=args.threads,
+                    log=log,
+                    comp_details=comp_details,
+                )
+                compression_time += elapsed_c
 
-    # Phase 3: compress fastq files with pigz.
-    log.info("=" * 60)
-    log.info("PHASE 3: Compression (pigz)")
-    log.info("=" * 60)
+        # Also flush any leftover backlog one-by-one before next accession.
+        flushed, elapsed_flush = _flush_fastq_backlog(
+            fastq_dir=args.fastq_dir,
+            out_dir=args.out_dir,
+            threads=args.threads,
+            log=log,
+            comp_details=comp_details,
+        )
+        compression_time += elapsed_flush
+        if flushed > 0:
+            log.info(f"  Backlog flush complete after {acc}: {flushed} file(s)")
 
-    fastq_files = list(Path(args.fastq_dir).rglob("*.fastq"))
-    log.info(f"  Found {len(fastq_files)} .fastq file(s) to compress")
+    # Final defensive flush to leave NVMe clean.
+    flushed_final, elapsed_final = _flush_fastq_backlog(
+        fastq_dir=args.fastq_dir,
+        out_dir=args.out_dir,
+        threads=args.threads,
+        log=log,
+        comp_details=comp_details,
+    )
+    compression_time += elapsed_final
+    if flushed_final > 0:
+        log.info(f"  Final backlog flush complete: {flushed_final} file(s)")
 
-    t_comp_start = time.time()
-    comp_details: Dict[str, Dict[str, object]] = {}
-
-    for fq in fastq_files:
-        out_gz = os.path.join(args.out_dir, fq.name + ".gz")
-        elapsed, ok, stderr_tail = _run([
-            "pigz", "-1", "-p", str(args.threads), str(fq),
-        ], log)
-
-        gz_src = str(fq) + ".gz"
-        if ok and os.path.exists(gz_src):
-            shutil.move(gz_src, out_gz)
-            # Ensure source .gz does not linger after move completion.
-            if os.path.exists(gz_src):
-                os.remove(gz_src)
-
-        # pigz usually removes input .fastq on success; enforce cleanup if it remains.
-        if ok and fq.exists():
-            try:
-                fq.unlink()
-            except OSError as e:
-                log.warning(f"  Compressed but could not remove FASTQ {fq}: {e}")
-
-        comp_details[fq.name] = {
-            "ok": ok,
-            "elapsed_s": round(elapsed, 2),
-            "stderr_tail": stderr_tail,
-            "out_file": out_gz,
-        }
-        log.info(f"  pigz {fq.name}: {'OK' if ok else 'FAILED'} in {elapsed:.1f}s")
-
-    t_comp_end = time.time()
-    compression_time = t_comp_end - t_comp_start
-    log.info(f"Phase 3 complete: {compression_time:.1f}s total")
+    serial_end = time.time()
+    t_conv_end = serial_end
+    t_comp_start = serial_end
+    t_comp_end = serial_end
+    log.info(f"Serial conversion time: {conversion_time:.1f}s")
+    log.info(f"Serial compression time: {compression_time:.1f}s")
 
     total_time = time.time() - t_global_start
 
