@@ -222,6 +222,37 @@ def _cleanup_dir(path: str):
         pass
 
 
+def _terminate_pigz_processes(procs: dict, exclude=None):
+    """Best-effort reap of sibling pigz processes after partial failure."""
+    for proc in procs.values():
+        if proc is exclude:
+            continue
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+    deadline = time.time() + 5.0
+    for proc in procs.values():
+        if proc is exclude:
+            continue
+        if proc.poll() is not None:
+            continue
+        remaining = max(0.0, deadline - time.time())
+        try:
+            proc.wait(timeout=remaining)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=1.0)
+            except Exception:
+                pass
+
+
 def _conversion_worker(
     job_id: int,
     sra_path: str,
@@ -390,6 +421,7 @@ def _conversion_worker(
             if proc.returncode != 0:
                 err = proc.stderr.read().decode(errors="replace").strip()
                 logging.error(f"[Converter #{job_id}] pigz failed for {fq}: {err}")
+                _terminate_pigz_processes(procs, exclude=proc)
                 _cleanup_dir(acc_fastq_dir)
                 result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
                 return
@@ -413,11 +445,13 @@ def _conversion_worker(
                     logging.warning(f"[Converter #{job_id}] Could not remove source FASTQ {fq}: {e}")
         except subprocess.TimeoutExpired:
             logging.error(f"[Converter #{job_id}] pigz timed out for {fq}")
+            _terminate_pigz_processes(procs, exclude=proc)
             _cleanup_dir(acc_fastq_dir)
             result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
             return
         except FileNotFoundError:
             logging.error(f"[Converter #{job_id}] pigz not found in PATH")
+            _terminate_pigz_processes(procs, exclude=proc)
             _cleanup_dir(acc_fastq_dir)
             result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
             return
