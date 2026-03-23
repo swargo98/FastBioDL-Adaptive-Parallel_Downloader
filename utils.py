@@ -40,6 +40,13 @@ def available_space(path="/dev/shm/data/"):
         return (0,0)
 
 
+def available_space_bytes(path="/dev/shm/data/"):
+    try:
+        return shutil.disk_usage(path).free
+    except Exception:
+        return 0
+
+
 def get_dir_size(logger, path="/dev/shm/"):
     total = 0
     try:

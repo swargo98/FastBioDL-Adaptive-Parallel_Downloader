@@ -13,7 +13,7 @@ import aiohttp
 from threading import Thread, Lock
 from collections import deque
 from config_fastbiodl import configurations
-from utils import available_space
+from utils import available_space, available_space_bytes
 from search import base_optimizer, gradient_opt_fast, exit_signal
 
 from typing import List, Tuple, Optional, Dict, Set
@@ -246,10 +246,10 @@ class SegmentedDownloader:
                             raise asyncio.CancelledError("Download paused by optimizer")
                         
                         # Check available space
-                        _, free_now = available_space(download_dir)
-                        while free_now * 1024 * 1024 <= (len(chunk) + chunk_size):
+                        free_now = available_space_bytes(download_dir)
+                        while free_now <= (len(chunk) + chunk_size):
                             await asyncio.sleep(0.5)
-                            _, free_now = available_space(download_dir)
+                            free_now = available_space_bytes(download_dir)
                         
                         # Write directly to file at correct offset using pwrite
                         os.pwrite(fd, chunk, current_offset)
@@ -550,10 +550,10 @@ class SegmentedDownloader:
                                 if download_process_status[self.process_id] == 0:
                                     raise asyncio.CancelledError("Download paused")
                                 
-                                _, free_now = available_space(download_dir)
-                                while free_now * 1024 * 1024 <= (len(chunk) + chunk_size):
+                                free_now = available_space_bytes(download_dir)
+                                while free_now <= (len(chunk) + chunk_size):
                                     await asyncio.sleep(0.5)
-                                    _, free_now = available_space(download_dir)
+                                    free_now = available_space_bytes(download_dir)
                                 
                                 os.write(fd, chunk)
                                 current_offset += len(chunk)
@@ -872,12 +872,25 @@ def run_download_optimizer(probing_func, throughput_logs: deque, throughput_lock
 #############################
 # Graceful exit handler
 #############################
+main_processing_queue = None
+main_move_queue = None
+
+
 def graceful_exit(signum=None, frame=None):
     """Signal handler for SIGINT/SIGTERM."""
     logging.info(f"Graceful exit triggered: signum={signum}")
     try:
         transfer_done.value = 1
-        move_complete.value = download_complete.value
+        if main_processing_queue is not None:
+            try:
+                main_processing_queue.put_nowait(None)
+            except Exception:
+                pass
+        if main_move_queue is not None:
+            try:
+                main_move_queue.put_nowait(None)
+            except Exception:
+                pass
     except Exception as e:
         logging.error(e)
     sys.exit(1)
@@ -991,6 +1004,9 @@ if __name__ == '__main__':
     failed_queue = mp.Queue()  # Track failed downloads
     processing_queue = mp.Queue()
     move_queue = mp.Queue()
+
+    main_processing_queue = processing_queue
+    main_move_queue = move_queue
 
     # Read accessions and build download tasks
     with open(args.input) as f:
