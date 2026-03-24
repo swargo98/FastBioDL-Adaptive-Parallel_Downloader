@@ -150,6 +150,14 @@ def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[Tuple[str, str]]:
     )
 
 
+def _accession_group_name(input_path: str) -> str:
+    """Derive a safe folder name from the accession input filename."""
+    raw_name = Path(input_path).stem or "accessions"
+    safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in raw_name)
+    safe_name = safe_name.strip("._-")
+    return safe_name or "accessions"
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -180,8 +188,14 @@ def main():
     args = parser.parse_args()
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"benchmark_kingfisher_{ts}.log"
-    json_file = args.output_json or f"benchmark_kingfisher_results_{ts}.json"
+    accession_group = _accession_group_name(args.input)
+    run_log_dir = os.path.join("logs", "kingfisher", accession_group)
+    log_file = os.path.join(run_log_dir, f"benchmark_kingfisher_{ts}.log")
+    json_file = args.output_json or os.path.join(run_log_dir, f"benchmark_kingfisher_results_{ts}.json")
+
+    os.makedirs(run_log_dir, exist_ok=True)
+    if args.output_json:
+        os.makedirs(os.path.dirname(json_file) or ".", exist_ok=True)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -206,6 +220,7 @@ def main():
     log.info(f"  threads  : {args.threads}")
     log.info(f"  dl method: {args.download_method}")
     log.info(f"  converter: {'fasterq-dump (fallback)' if args.use_fasterq else 'kingfisher convert'}")
+    log.info(f"  logs dir : {run_log_dir}")
 
     t_global_start = time.time()
 
