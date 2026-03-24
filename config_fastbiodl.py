@@ -1,12 +1,13 @@
 configurations = {
-    "download_dir": "/mnt/nvme0n1/fastbiodl_downloads/",
+    "download_dir": "/fastbiodl_exp/fastbiodl_downloads/",
     "method": "gradient", # options: [gradient, bayes]
     "bayes": {
         "initial_run": 3,
         "num_of_exp": -1 #-1 for infinite
     },
     "thread_limit": 15,
-    "max_conversion_jobs": 2,
+    "max_conversion_jobs": 1,
+    "max_pigz_jobs": 1,
     "conversion_threads": 8,
     "conversion_required_factor": 10.0,
     "conversion_reserve_factor": 10.5,

@@ -6,7 +6,7 @@ Architecture:
   - SRAConverter class owns all state and worker lifecycle
   - AdmissionGate polls /proc/stat (CPU) and /proc/diskstats (NVMe) before
     starting each new fasterq-dump job
-  - Workers are subprocesses running fasterq-dump + pigz compression
+    - Separate worker pools run fasterq-dump and pigz independently
   - Completed fastq.gz paths are pushed to move_queue for receiver.py
 
 Usage (from fastbiodl_upgrade.py):
@@ -14,7 +14,7 @@ Usage (from fastbiodl_upgrade.py):
     converter = SRAConverter(
         processing_queue=processing_queue,
         move_queue=move_queue,
-        work_dir="/mnt/nvme0n1/fastbiodl/",
+        work_dir="/fastbiodl_exp/fastbiodl/",
         nvme_device="nvme0n1",
         threads_per_job=4,
         cpu_threshold=85.0,
@@ -37,7 +37,7 @@ Fixes applied
 [My #5]  _result_collector_loop drains the result queue once the while-loop
          exits so results that arrive in the stop-race window are not dropped.
 
-[My #8]  _conversion_worker isolates each job in its own output dir and
+[My #8]  _fasterq_worker and _pigz_worker isolate each job in its own output dir and
          cleans that dir on partial pigz failure so concurrent jobs cannot
          trample staged FASTQ/FASTQ.GZ files.
 
@@ -254,55 +254,55 @@ def _terminate_pigz_processes(procs: dict, exclude=None):
                 pass
 
 
-def _conversion_worker(
+def _decrement_shared_counter(counter):
+    """Atomically decrement a shared counter without letting it go negative."""
+    with counter.get_lock():
+        counter.value = max(0, counter.value - 1)
+
+
+def _fasterq_worker(
     job_id: int,
     sra_path: str,
     sra_size: int,
     fastq_dir: str,
     temp_dir: str,
     threads: int,
+    pigz_task_queue: mp.Queue,
     result_queue: mp.Queue,
     phase_queue: mp.Queue,
-    byte_counter: mp.Value,
-    removed_sra_counter: mp.Value,
-    removed_fastq_counter: mp.Value,
+    active_fasterq_jobs,
+    removed_sra_counter,
 ):
     """
-    Runs fasterq-dump on one .sra file, then compresses output with pigz.
-    Pushes (sra_path, [fastq_gz_paths], success) to result_queue when done.
-    Increments byte_counter as output files grow (polled during compression).
+    Runs fasterq-dump for one .sra file and hands successful jobs to pigz queue.
+    On fasterq failure, pushes a failed result directly to result_queue.
     """
     source_name = os.path.basename(sra_path)
     accession = source_name.split(".")[0]
-    # Keep per-job output isolated so concurrent inputs for the same accession
-    # cannot delete or overwrite each other's staged FASTQ files.
     job_output_dir = os.path.join(fastq_dir, accession, f"{source_name}__job{job_id}")
-    # Each job gets its own isolated temp directory — prevents filename
-    # collisions between concurrent fasterq-dump processes.
     job_temp_dir = os.path.join(temp_dir, f"{accession}_{job_id}")
     os.makedirs(job_output_dir, exist_ok=True)
     os.makedirs(job_temp_dir, exist_ok=True)
 
     logging.info(f"[Converter #{job_id}] Starting fasterq-dump for {accession}")
 
-    # ── Step 1: fasterq-dump ──────────────────────────────────────────────────
     fasterq_cmd = [
         "fasterq-dump",
-        "--threads",  str(threads),
-        "--temp",     job_temp_dir,   # isolated per-job temp — no cross-job collisions
-        "--outdir",   job_output_dir,
-        "--split-3",                  # separate R1/R2/unpaired
+        "--threads", str(threads),
+        "--temp", job_temp_dir,
+        "--outdir", job_output_dir,
+        "--split-3",
         "--skip-technical",
         sra_path,
     ]
 
-    t_fasterq_start = time.time()   # ← benchmark timing: fasterq-dump started
+    t_fasterq_start = time.time()
     try:
         proc = subprocess.run(
             fasterq_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=7200,             # 2h hard timeout per file
+            timeout=7200,
         )
         if proc.returncode != 0:
             err = proc.stderr.decode(errors="replace").strip()
@@ -323,14 +323,12 @@ def _conversion_worker(
         _cleanup_dir(job_output_dir)
         result_queue.put((sra_path, [], False, t_fasterq_start, 0.0, 0.0, 0.0))
         return
+    finally:
+        _decrement_shared_counter(active_fasterq_jobs)
 
-    # Temp dir is now empty (fasterq-dump cleans its own scratch) — remove it.
     _cleanup_dir(job_temp_dir)
+    t_fasterq_done = time.time()
 
-    t_fasterq_done = time.time()   # ← benchmark timing: fasterq-dump finished
-
-    # Notify the parent process that this job has transitioned to pigz.
-    # At this point the job no longer needs full fasterq expansion headroom.
     try:
         phase_queue.put(("PIGZ_START", sra_path, int(sra_size)))
     except Exception as e:
@@ -338,9 +336,6 @@ def _conversion_worker(
             f"[Converter #{job_id}] Could not publish phase transition for {accession}: {e}"
         )
 
-    # Delete source SRA immediately after fasterq-dump is done to free space
-    # before pigz starts. This intentionally prioritizes disk headroom over
-    # post-fasterq failure recovery.
     try:
         removed_size = os.path.getsize(sra_path)
         os.remove(sra_path)
@@ -354,9 +349,41 @@ def _conversion_worker(
     except OSError as e:
         logging.warning(f"[Converter #{job_id}] Could not remove {sra_path} after fasterq-dump: {e}")
 
-    logging.info(f"[Converter #{job_id}] fasterq-dump done for {accession}, compressing ...")
+    logging.info(f"[Converter #{job_id}] fasterq-dump done for {accession}, queueing pigz ...")
 
-    # ── Step 2: pigz compress each .fastq output ──────────────────────────────
+    try:
+        pigz_task_queue.put(
+            (
+                job_id,
+                sra_path,
+                job_output_dir,
+                threads,
+                t_fasterq_start,
+                t_fasterq_done,
+            )
+        )
+    except Exception as e:
+        logging.error(f"[Converter #{job_id}] Failed to queue pigz task for {accession}: {e}")
+        _cleanup_dir(job_output_dir)
+        result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, 0.0, 0.0))
+
+
+def _pigz_worker(
+    job_id: int,
+    sra_path: str,
+    job_output_dir: str,
+    threads: int,
+    t_fasterq_start: float,
+    t_fasterq_done: float,
+    result_queue: mp.Queue,
+    byte_counter,
+    removed_fastq_counter,
+    active_pigz_jobs,
+):
+    """Compress fasterq outputs to .fastq.gz and emit final conversion result."""
+    accession = os.path.basename(sra_path).split(".")[0]
+    logging.info(f"[Converter #{job_id}] Starting pigz for {accession}")
+
     fastq_files = [
         os.path.join(job_output_dir, f)
         for f in os.listdir(job_output_dir)
@@ -368,12 +395,13 @@ def _conversion_worker(
             f"[Converter #{job_id}] No .fastq files found after fasterq-dump for {accession}"
         )
         result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, 0.0, 0.0))
+        _cleanup_dir(job_output_dir)
+        _decrement_shared_counter(active_pigz_jobs)
         return
 
     fastq_gz_files = []
     removed_fastq_bytes_job = 0
-    t_pigz_start = time.time()   # ← benchmark timing: pigz started (all jobs launched simultaneously)
-    # Launch all pigz processes simultaneously
+    t_pigz_start = time.time()
     procs = {
         fq: subprocess.Popen(
             ["pigz", "-1", "-p", str(max(1, threads)), fq],
@@ -387,26 +415,20 @@ def _conversion_worker(
         prev_gz_size = 0
         deadline = time.time() + 3600
         try:
-            # Poll the growing .gz file every second so byte_counter reflects
-            # live progress rather than a single lump-sum update at job end.
-            # This is what makes the conversion throughput reporter show non-zero
-            # MB/s while pigz is running instead of staying at 0.0 MB/s.
             while True:
                 try:
                     proc.wait(timeout=1.0)
-                    # pigz finished — capture any remaining bytes
                     if os.path.exists(gz_path):
                         cur_gz_size = os.path.getsize(gz_path)
                         delta = cur_gz_size - prev_gz_size
                         if delta > 0:
                             with byte_counter.get_lock():
                                 byte_counter.value += delta
-                    break  # exit polling loop
+                    break
                 except subprocess.TimeoutExpired:
                     if time.time() > deadline:
                         proc.kill()
                         raise subprocess.TimeoutExpired(proc.args, 3600)
-                    # Drip incremental bytes into the shared counter
                     if os.path.exists(gz_path):
                         cur_gz_size = os.path.getsize(gz_path)
                         delta = cur_gz_size - prev_gz_size
@@ -421,12 +443,11 @@ def _conversion_worker(
                 _terminate_pigz_processes(procs, exclude=proc)
                 _cleanup_dir(job_output_dir)
                 result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
+                _decrement_shared_counter(active_pigz_jobs)
                 return
             if os.path.exists(gz_path):
                 fastq_gz_files.append(gz_path)
 
-            # pigz normally removes the source .fastq, but enforce cleanup
-            # explicitly so this phase always leaves only .fastq.gz outputs.
             if os.path.exists(fq):
                 try:
                     removed_size = os.path.getsize(fq)
@@ -445,15 +466,17 @@ def _conversion_worker(
             _terminate_pigz_processes(procs, exclude=proc)
             _cleanup_dir(job_output_dir)
             result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
+            _decrement_shared_counter(active_pigz_jobs)
             return
         except FileNotFoundError:
             logging.error(f"[Converter #{job_id}] pigz not found in PATH")
             _terminate_pigz_processes(procs, exclude=proc)
             _cleanup_dir(job_output_dir)
             result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
+            _decrement_shared_counter(active_pigz_jobs)
             return
 
-    t_pigz_done = time.time()   # ← benchmark timing: all pigz finished
+    t_pigz_done = time.time()
     logging.info(
         f"[Converter #{job_id}] Completed {accession}: "
         f"{[os.path.basename(f) for f in fastq_gz_files]}"
@@ -466,6 +489,7 @@ def _conversion_worker(
     result_queue.put((sra_path, fastq_gz_files, True,
                       t_fasterq_start, t_fasterq_done,
                       t_pigz_start, t_pigz_done))
+    _decrement_shared_counter(active_pigz_jobs)
 
 
 #############################
@@ -475,11 +499,13 @@ def _conversion_worker(
 def _report_conversion_throughput(
     byte_counter: mp.Value,
     active_jobs: mp.Value,
+    active_fasterq_jobs: mp.Value,
+    active_pigz_jobs: mp.Value,
     throughput_logs: deque,
     throughput_lock: Lock,
     stop_event,
     log_dir: str = "logs",
-    fastq_dir: str = "/mnt/nvme0n1/fastbiodl/fastq",
+    fastq_dir: str = "/fastbiodl_exp/fastbiodl/fastq",
 ):
     """
     Logs conversion throughput (MB/s of output) once per second.
@@ -495,7 +521,10 @@ def _report_conversion_throughput(
     
     try:
         with open(fname, "w") as f:
-            f.write("timestamp,elapsed_sec,convert_mbs,compress_mbs,total_mbs,active_jobs,fastq_mb,fastqgz_mb\n")
+            f.write(
+                "timestamp,elapsed_sec,convert_mbs,compress_mbs,total_mbs,"
+                "active_jobs,active_fasterq_jobs,active_pigz_jobs,overlap,fastq_mb,fastqgz_mb\n"
+            )
 
         start_time = time.time()
         prev_fastq_bytes = 0
@@ -510,6 +539,9 @@ def _report_conversion_throughput(
                 t1 = time.time()
                 elapsed = round(t1 - start_time, 1)
                 jobs = active_jobs.value
+                fasterq_jobs = active_fasterq_jobs.value
+                pigz_jobs = active_pigz_jobs.value
+                overlap_active = int(fasterq_jobs > 0 and pigz_jobs > 0)
 
                 # Measure .fastq (fasterq-dump output) and .fastq.gz (pigz output) SEPARATELY
                 fastq_bytes = 0
@@ -549,25 +581,36 @@ def _report_conversion_throughput(
                     if convert_mbs > 0:
                         logging.info(
                             f"fasterq-dump @{elapsed}s: {convert_mbs}MB/s "
-                            f"(total: {fastq_mb}MB .fastq, active: {jobs})"
+                            f"(total: {fastq_mb}MB .fastq, active_fasterq: {fasterq_jobs}, "
+                            f"active_pigz: {pigz_jobs})"
                         )
                     if compress_mbs > 0:
+                        fasterq_state = ""
+                        if fasterq_jobs > 0 and convert_mbs == 0:
+                            fasterq_state = ", fasterq_active_no_fastq_growth"
                         logging.info(
                             f"pigz @{elapsed}s: {compress_mbs}MB/s "
-                            f"(total: {fastqgz_mb}MB .fastq.gz, active: {jobs})"
+                            f"(total: {fastqgz_mb}MB .fastq.gz, active_fasterq: {fasterq_jobs}, "
+                            f"active_pigz: {pigz_jobs}{fasterq_state})"
                         )
                     # If no throughput but jobs are running, they're still processing
                     # (e.g., fasterq-dump extracting in temp space before writing output)
                     if convert_mbs == 0 and compress_mbs == 0:
+                        phase_hint = "overlap active" if overlap_active else "single-stage active"
                         logging.info(
-                            f"Conversion @{elapsed}s: 0MB/s (processing, active: {jobs})"
+                            f"Conversion @{elapsed}s: 0MB/s ({phase_hint}, "
+                            f"active_fasterq: {fasterq_jobs}, active_pigz: {pigz_jobs}, "
+                            f"active_total: {jobs})"
                         )
                 else:
                     # No jobs running - truly idle
                     logging.info(f"Conversion @{elapsed}s: idle")
                 
                 with open(fname, "a") as f:
-                    f.write(f"{t1},{elapsed},{convert_mbs},{compress_mbs},{total_mbs},{jobs},{fastq_mb},{fastqgz_mb}\n")
+                    f.write(
+                        f"{t1},{elapsed},{convert_mbs},{compress_mbs},{total_mbs},"
+                        f"{jobs},{fasterq_jobs},{pigz_jobs},{overlap_active},{fastq_mb},{fastqgz_mb}\n"
+                    )
                     
             except Exception as e:
                 logging.error(f"[ConversionReporter] Error in reporter loop iteration: {e}")
@@ -607,7 +650,9 @@ class SRAConverter:
     nvme_threshold : float
         NVMe utilization % ceiling for admission gate (default 92.0).
     max_jobs : int | None
-        Hard sanity ceiling on concurrent jobs.  None → cpu_count.
+        Maximum concurrent fasterq-dump jobs. None → cpu_count.
+    max_pigz_jobs : int | None
+        Maximum concurrent pigz compression jobs. None → max_jobs.
     required_size_factor : float
         Target peak footprint factor relative to incoming SRA size.
         Admission rule uses additional runway only:
@@ -641,12 +686,13 @@ class SRAConverter:
         self,
         processing_queue: mp.Queue,
         move_queue: mp.Queue,
-        work_dir: str = "/mnt/nvme0n1/fastbiodl/",
+        work_dir: str = "/fastbiodl_exp/fastbiodl/",
         nvme_device: str = "nvme0n1",
         threads_per_job: int = 8,
         cpu_threshold: float = 85.0,
         nvme_threshold: float = 92.0,
         max_jobs: Optional[int] = None,
+        max_pigz_jobs: Optional[int] = None,
         required_size_factor: float = 10.0,
         reserve_size_factor: float = 8.0,
         pigz_reserve_factor: float = 3.0,
@@ -666,6 +712,7 @@ class SRAConverter:
         self.cpu_threshold    = cpu_threshold
         self.nvme_threshold   = nvme_threshold
         self.max_jobs         = max_jobs or mp.cpu_count()
+        self.max_pigz_jobs    = max_pigz_jobs or max(1, self.max_jobs)
 
         # Backward compatibility: older call sites passed output_size_factor.
         if output_size_factor is not None and required_size_factor == 10.0:
@@ -679,6 +726,8 @@ class SRAConverter:
 
         # Shared state
         self._active_jobs     = mp.Value("i", 0)
+        self._active_fasterq_jobs = mp.Value("i", 0)
+        self._active_pigz_jobs = mp.Value("i", 0)
         self._byte_counter    = mp.Value("Q", 0)   # unsigned 64-bit
         self._converted_count = mp.Value("i", 0)
         self._failed_count    = mp.Value("i", 0)
@@ -697,6 +746,7 @@ class SRAConverter:
 
         # Result queue from worker processes → collector
         self._result_queue    = mp.Queue()
+        self._pigz_task_queue = mp.Queue()
         self._phase_queue     = mp.Queue()
 
         # Throughput tracking
@@ -735,6 +785,7 @@ class SRAConverter:
     def start(self):
         """Start dispatcher, result collector, and throughput reporter threads."""
         t_dispatch = Thread(target=self._dispatcher_loop,        name="conv-dispatcher", daemon=True)
+        t_pigz     = Thread(target=self._pigz_dispatcher_loop,   name="conv-pigz",       daemon=True)
         t_phase    = Thread(target=self._phase_listener,         name="conv-phase",      daemon=True)
         t_collect  = Thread(target=self._result_collector_loop,  name="conv-collector",  daemon=True)
         t_report   = Thread(
@@ -742,6 +793,8 @@ class SRAConverter:
             args=(
                 self._byte_counter,
                 self._active_jobs,
+                self._active_fasterq_jobs,
+                self._active_pigz_jobs,
                 self._throughput_logs,
                 self._throughput_lock,
                 self._stop_event,
@@ -752,12 +805,13 @@ class SRAConverter:
             daemon=True,
         )
 
-        for t in (t_dispatch, t_phase, t_collect, t_report):
+        for t in (t_dispatch, t_pigz, t_phase, t_collect, t_report):
             t.start()
             self._threads.append(t)
 
         logging.info(
-            f"[SRAConverter] Started — max_jobs={self.max_jobs}, "
+            f"[SRAConverter] Started — max_fasterq_jobs={self.max_jobs}, "
+            f"max_pigz_jobs={self.max_pigz_jobs}, "
             f"threads_per_job={self.threads_per_job}, "
             f"nvme_device={self.nvme_device}, "
             f"cpu_threshold={self.cpu_threshold}%, "
@@ -1018,13 +1072,66 @@ class SRAConverter:
 
     # ── Internal loops ──────────────────────────────────────────────────────
 
+    def _pigz_dispatcher_loop(self):
+        """Launch pigz workers from completed fasterq tasks with independent limits."""
+        while (
+            not self._stop_event.is_set()
+            or self._active_jobs.value > 0
+            or self._active_pigz_jobs.value > 0
+        ):
+            if self._active_pigz_jobs.value >= self.max_pigz_jobs:
+                time.sleep(0.2)
+                continue
+
+            try:
+                job_id, sra_path, job_output_dir, threads, t_fasterq_start, t_fasterq_done = (
+                    self._pigz_task_queue.get(timeout=1.0)
+                )
+            except queue.Empty:
+                continue
+
+            p = mp.Process(
+                target=_pigz_worker,
+                args=(
+                    job_id,
+                    sra_path,
+                    job_output_dir,
+                    threads,
+                    t_fasterq_start,
+                    t_fasterq_done,
+                    self._result_queue,
+                    self._byte_counter,
+                    self._removed_fastq_bytes,
+                    self._active_pigz_jobs,
+                ),
+                daemon=False,
+            )
+
+            with self._active_pigz_jobs.get_lock():
+                self._active_pigz_jobs.value += 1
+
+            try:
+                p.start()
+            except Exception:
+                _decrement_shared_counter(self._active_pigz_jobs)
+                self._result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, 0.0, 0.0))
+                continue
+
+            with self._procs_lock:
+                self._worker_procs.append(p)
+
+            logging.info(
+                f"[SRAConverter] Pigz job #{job_id} started for {os.path.basename(sra_path)} "
+                f"(active pigz jobs: {self._active_pigz_jobs.value})"
+            )
+
     def _dispatcher_loop(self):
         """
         Pulls .sra paths from processing_queue one at a time.
         Before launching each job:
-          1. Waits for active_jobs < max_jobs  (hard sanity ceiling)
+                    1. Waits for active_fasterq_jobs < max_jobs (fasterq pool ceiling)
           2. Waits for AdmissionGate to grant based on CPU + NVMe utilization
-        Then spawns a worker process for that job.
+                Then spawns a fasterq worker process for that job.
         Sets _dispatcher_done when it exits so stop() knows it is safe to
         raise _stop_event (Bug #6 fix).
         """
@@ -1077,7 +1184,7 @@ class SRAConverter:
 
                 logging.info(f"[SRAConverter] Dequeued: {sra_path}")
 
-                while self._active_jobs.value >= self.max_jobs:
+                while self._active_fasterq_jobs.value >= self.max_jobs:
                     time.sleep(0.5)
 
                 sra_size, required_bytes, reserved_bytes = self._estimate_space_targets(sra_path)
@@ -1164,7 +1271,7 @@ class SRAConverter:
                 )
                 continue
 
-            if self._active_jobs.value > 0:
+            if self._active_fasterq_jobs.value > 0:
                 granted = gate.admit(stop_event=None)
                 if not granted:
                     logging.warning(
@@ -1180,7 +1287,7 @@ class SRAConverter:
                 )
             else:
                 logging.info(
-                    f"[SRAConverter] Admission gate bypassed (active jobs: 0) "
+                    f"[SRAConverter] Admission gate bypassed (active fasterq jobs: 0) "
                     f"— launching first job for {os.path.basename(sra_path)}"
                 )
 
@@ -1188,7 +1295,7 @@ class SRAConverter:
             job_id = self._job_id_counter
 
             p = mp.Process(
-                target=_conversion_worker,
+                target=_fasterq_worker,
                 args=(
                     job_id,
                     sra_path,
@@ -1196,11 +1303,11 @@ class SRAConverter:
                     self.fastq_dir,
                     self.temp_dir,
                     self.threads_per_job,
+                    self._pigz_task_queue,
                     self._result_queue,
                     self._phase_queue,
-                    self._byte_counter,
+                    self._active_fasterq_jobs,
                     self._removed_sra_bytes,
-                    self._removed_fastq_bytes,
                 ),
                 daemon=False,
             )
@@ -1210,11 +1317,14 @@ class SRAConverter:
             # before this increment happens, leaking _active_jobs by +1.
             with self._active_jobs.get_lock():
                 self._active_jobs.value += 1
+            with self._active_fasterq_jobs.get_lock():
+                self._active_fasterq_jobs.value += 1
             try:
                 p.start()
             except Exception:
                 with self._active_jobs.get_lock():
                     self._active_jobs.value = max(0, self._active_jobs.value - 1)
+                _decrement_shared_counter(self._active_fasterq_jobs)
                 self._release_disk_reservation(sra_path)
                 raise
 
@@ -1224,6 +1334,7 @@ class SRAConverter:
             logging.info(
                 f"[SRAConverter] Job #{job_id} started for {os.path.basename(sra_path)} "
                 f"(active jobs: {self._active_jobs.value}, "
+                f"active fasterq jobs: {self._active_fasterq_jobs.value}, "
                 f"required={required_bytes / (1024 ** 3):.2f}GB, "
                 f"reserved_added={reserved_bytes / (1024 ** 3):.2f}GB, "
                 f"reserved_total={reserved_after / (1024 ** 3):.2f}GB)"

@@ -1295,6 +1295,7 @@ if __name__ == '__main__':
         cpu_threshold=configurations.get("cpu_threshold", 85.0),
         nvme_threshold=configurations.get("nvme_threshold", 92.0),
         max_jobs=configurations.get("max_conversion_jobs", None),
+        max_pigz_jobs=configurations.get("max_pigz_jobs", None),
         required_size_factor=configurations.get(
             "conversion_required_factor",
             configurations.get("conversion_output_factor", 10.0),
