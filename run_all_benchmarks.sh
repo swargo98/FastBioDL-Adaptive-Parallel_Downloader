@@ -20,16 +20,18 @@ to_human() {
 total_deleted_bytes=0
 
 accession_lists=(
-  "accessions_large_PRJNA200694.txt"
+  "accessions_large_PRJNA251383.txt"
   "accessions_medium_PRJNA353374.txt"
   "accessions_small_PRJNA916347.txt"
+  # "accessions_large_PRJNA200694.txt"
 )
 
 scripts=(
   "fastbiodl_upgrade.py"
   "benchmark_aria2c_kingfisher.py"
-  "benchmark_aria2c.py"
-  "benchmark_pysradb.py"
+  # "benchmark_aria2c.py"
+  # "benchmark_pysradb.py"
+  # "benchmark_sratools.py"
 )
 
 for accession_list in "${accession_lists[@]}"; do
@@ -38,15 +40,14 @@ for accession_list in "${accession_lists[@]}"; do
     continue
   fi
 
-  for script in "${scripts[@]}"; do
-    if [[ ! -f "$script" ]]; then
-      echo "[ERROR] Missing script: $script"
-      continue
-    fi
-
-    for run_count in {1..5}; do
+  for run_count in {1..3}; do
+    for script in "${scripts[@]}"; do
+      if [[ ! -f "$script" ]]; then
+        echo "[ERROR] Missing script: $script"
+        continue
+      fi
       echo "============================================================"
-      echo "Running: python3 $script -i $accession_list (run $run_count/5)"
+      echo "Running: python3 $script -i $accession_list (run $run_count/3)"
       echo "============================================================"
 
       python3 "$script" -i "$accession_list"
