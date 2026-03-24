@@ -152,7 +152,7 @@ def io_probing(params):
 
 
 def run_optimizer(probing_func):
-    while start.value == 0:
+    while _start_time.value == 0:
         time.sleep(0.1)
 
     params = [2]
@@ -176,10 +176,10 @@ def report_io_throughput():
     global io_throughput_logs
     previous_total, previous_time = 0, 0
 
-    while start.value == 0:
+    while _start_time.value == 0:
         time.sleep(0.1)
 
-    start_time = start.value
+    start_time = _start_time.value
     while transfer_done.value == 0 or move_complete.value < transfer_complete.value:
         t1 = time.time()
         time_since_begining = np.round(t1-start_time, 1)
@@ -243,7 +243,7 @@ class FileMover:
         global tmpfs_dir_g, root_dir_g
         global transfer_complete, move_complete, transfer_done
         global io_process_status, transfer_file_offsets, io_file_offsets
-        global io_throughput_logs, mQueue, start, chunk_size
+        global io_throughput_logs, mQueue, _start_time, chunk_size
         global removed_compressed_bytes
         global probing_time, io_limit
 
@@ -265,7 +265,7 @@ class FileMover:
         io_file_offsets         = mgr.dict()
         io_throughput_logs      = mgr.list()
         mQueue                  = mgr.list()
-        start = mp.Value("d", 0.0)
+        _start_time = mp.Value("d", 0.0)
 
         self._num_workers = num_workers
         self._threads     = []
@@ -299,7 +299,7 @@ class FileMover:
 
     # ── public API ───────────────────────────────────────────────────────────
 
-    def start(self):
+    def begin(self):
         # Feeder thread
         feeder = Thread(target=self._queue_feeder, name="mover-feeder", daemon=True)
         feeder.start()
@@ -322,7 +322,7 @@ class FileMover:
         optimizer.start()
         self._threads += [reporter, optimizer]
 
-        start.value = time.time()          # unblocks reporter and optimizer (they poll start.value)
+        _start_time.value = time.time()    # unblocks reporter and optimizer (they poll _start_time.value)
         logger.info("[FileMover] Started")
 
     def stop(self, timeout: float = 7200.0):

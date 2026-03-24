@@ -14,6 +14,7 @@ configurations = {
     # Legacy alias kept for backward compatibility with older call sites.
     "conversion_output_factor": 10.0,
     "conversion_disk_safety_margin_gb": 0.0,
+    "download_disk_safety_margin_gb": 20.0,
     "K": 1.02,
     "probing_sec": 5, # probing interval in seconds
     "ncbi_lookup_rps": 2.0,

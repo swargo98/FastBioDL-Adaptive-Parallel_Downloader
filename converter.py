@@ -37,8 +37,9 @@ Fixes applied
 [My #5]  _result_collector_loop drains the result queue once the while-loop
          exits so results that arrive in the stop-race window are not dropped.
 
-[My #8]  _conversion_worker cleans up acc_fastq_dir on partial pigz failure
-         so orphan .fastq.gz files do not accumulate on disk.
+[My #8]  _conversion_worker isolates each job in its own output dir and
+         cleans that dir on partial pigz failure so concurrent jobs cannot
+         trample staged FASTQ/FASTQ.GZ files.
 
 [Img #2] stop() now waits for _active_jobs to reach 0 (up to timeout) before
          terminating worker procs, so no in-flight conversion is killed mid-run.
@@ -271,20 +272,16 @@ def _conversion_worker(
     Pushes (sra_path, [fastq_gz_paths], success) to result_queue when done.
     Increments byte_counter as output files grow (polled during compression).
     """
-    accession = os.path.basename(sra_path).split(".")[0]
-    acc_fastq_dir = os.path.join(fastq_dir, accession)
+    source_name = os.path.basename(sra_path)
+    accession = source_name.split(".")[0]
+    # Keep per-job output isolated so concurrent inputs for the same accession
+    # cannot delete or overwrite each other's staged FASTQ files.
+    job_output_dir = os.path.join(fastq_dir, accession, f"{source_name}__job{job_id}")
     # Each job gets its own isolated temp directory — prevents filename
     # collisions between concurrent fasterq-dump processes.
     job_temp_dir = os.path.join(temp_dir, f"{accession}_{job_id}")
-    os.makedirs(acc_fastq_dir, exist_ok=True)
+    os.makedirs(job_output_dir, exist_ok=True)
     os.makedirs(job_temp_dir, exist_ok=True)
-
-    import shutil
-    for f in os.listdir(acc_fastq_dir):
-        try:
-            os.remove(os.path.join(acc_fastq_dir, f))
-        except OSError as e:
-            logging.warning(f"[Converter #{job_id}] Could not clear stale file {f}: {e}")
 
     logging.info(f"[Converter #{job_id}] Starting fasterq-dump for {accession}")
 
@@ -293,7 +290,7 @@ def _conversion_worker(
         "fasterq-dump",
         "--threads",  str(threads),
         "--temp",     job_temp_dir,   # isolated per-job temp — no cross-job collisions
-        "--outdir",   acc_fastq_dir,
+        "--outdir",   job_output_dir,
         "--split-3",                  # separate R1/R2/unpaired
         "--skip-technical",
         sra_path,
@@ -311,19 +308,19 @@ def _conversion_worker(
             err = proc.stderr.decode(errors="replace").strip()
             logging.error(f"[Converter #{job_id}] fasterq-dump failed for {accession}: {err}")
             _cleanup_dir(job_temp_dir)
-            _cleanup_dir(acc_fastq_dir)
+            _cleanup_dir(job_output_dir)
             result_queue.put((sra_path, [], False, t_fasterq_start, 0.0, 0.0, 0.0))
             return
     except subprocess.TimeoutExpired:
         logging.error(f"[Converter #{job_id}] fasterq-dump timed out for {accession}")
         _cleanup_dir(job_temp_dir)
-        _cleanup_dir(acc_fastq_dir)
+        _cleanup_dir(job_output_dir)
         result_queue.put((sra_path, [], False, t_fasterq_start, 0.0, 0.0, 0.0))
         return
     except FileNotFoundError:
         logging.error(f"[Converter #{job_id}] fasterq-dump not found in PATH")
         _cleanup_dir(job_temp_dir)
-        _cleanup_dir(acc_fastq_dir)
+        _cleanup_dir(job_output_dir)
         result_queue.put((sra_path, [], False, t_fasterq_start, 0.0, 0.0, 0.0))
         return
 
@@ -361,8 +358,8 @@ def _conversion_worker(
 
     # ── Step 2: pigz compress each .fastq output ──────────────────────────────
     fastq_files = [
-        os.path.join(acc_fastq_dir, f)
-        for f in os.listdir(acc_fastq_dir)
+        os.path.join(job_output_dir, f)
+        for f in os.listdir(job_output_dir)
         if f.endswith(".fastq")
     ]
 
@@ -422,7 +419,7 @@ def _conversion_worker(
                 err = proc.stderr.read().decode(errors="replace").strip()
                 logging.error(f"[Converter #{job_id}] pigz failed for {fq}: {err}")
                 _terminate_pigz_processes(procs, exclude=proc)
-                _cleanup_dir(acc_fastq_dir)
+                _cleanup_dir(job_output_dir)
                 result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
                 return
             if os.path.exists(gz_path):
@@ -446,13 +443,13 @@ def _conversion_worker(
         except subprocess.TimeoutExpired:
             logging.error(f"[Converter #{job_id}] pigz timed out for {fq}")
             _terminate_pigz_processes(procs, exclude=proc)
-            _cleanup_dir(acc_fastq_dir)
+            _cleanup_dir(job_output_dir)
             result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
             return
         except FileNotFoundError:
             logging.error(f"[Converter #{job_id}] pigz not found in PATH")
             _terminate_pigz_processes(procs, exclude=proc)
-            _cleanup_dir(acc_fastq_dir)
+            _cleanup_dir(job_output_dir)
             result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
             return
 
@@ -612,9 +609,11 @@ class SRAConverter:
     max_jobs : int | None
         Hard sanity ceiling on concurrent jobs.  None → cpu_count.
     required_size_factor : float
-        Required free-space factor relative to incoming SRA size.
-        Admission rule uses: (free_bytes - reserved_bytes) >=
-        (required_size_factor * sra_size + safety_margin).
+        Target peak footprint factor relative to incoming SRA size.
+        Admission rule uses additional runway only:
+        (free_bytes - reserved_bytes) >=
+        ((required_size_factor - 1.0) * sra_size + safety_margin).
+        The `-1.0` accounts for the source .sra already occupying disk.
     reserve_size_factor : float
         Reservation factor charged to the shared reservation counter at job
         launch and released on completion. Example: 8.0 means reserve 8x SRA.
@@ -624,6 +623,13 @@ class SRAConverter:
         pressure has ended and only compressed outputs remain in-flight.
     disk_safety_margin_gb : float
         Extra free-space buffer (GB) added to each admission decision.
+    shared_reserved_bytes : mp.Value | None
+        Optional shared reservation counter used across pipeline stages
+        (e.g., downloader + converter) to prevent cross-stage overcommit.
+    shared_pending_headroom_bytes : mp.Value | None
+        Optional shared signal containing the disk runway needed to keep at
+        least one queued conversion job admissible while the rest of the
+        deferred SRA files remain on disk.
     output_size_factor : float | None
         Legacy alias for required_size_factor. If provided, it overrides the
         default required factor unless required_size_factor is explicitly set.
@@ -645,6 +651,8 @@ class SRAConverter:
         reserve_size_factor: float = 8.0,
         pigz_reserve_factor: float = 3.0,
         disk_safety_margin_gb: float = 0.0,
+        shared_reserved_bytes: Optional[mp.Value] = None,
+        shared_pending_headroom_bytes: Optional[mp.Value] = None,
         output_size_factor: Optional[float] = None,
         probing_sec: float = 1.0,
     ):
@@ -698,9 +706,12 @@ class SRAConverter:
         # Aggregate disk reservation tracking for conversion jobs.
         # This prevents over-admission when each individual job passes
         # free-space checks but the sum of active jobs exceeds headroom.
-        self._disk_reserved_bytes = mp.Value("Q", 0)
+        self._disk_reserved_bytes = shared_reserved_bytes if shared_reserved_bytes is not None else mp.Value("Q", 0)
+        self._shared_pending_headroom_bytes = shared_pending_headroom_bytes
         self._reserved_by_sra = {}
         self._reserve_lock = Lock()
+        self._using_shared_reservation = shared_reserved_bytes is not None
+        self._disk_deferral_counts = {}
 
         # FIX [My #1]: lock that protects _worker_procs against the
         # dispatcher (append) vs. collector (iterate + reassign) race.
@@ -754,7 +765,8 @@ class SRAConverter:
             f"required_size_factor={self.required_size_factor}x, "
             f"reserve_size_factor={self.reserve_size_factor}x, "
             f"pigz_reserve_factor={self.pigz_reserve_factor}x, "
-            f"disk_safety_margin_gb={round(self.disk_safety_margin_bytes / (1024 ** 3), 2)}"
+            f"disk_safety_margin_gb={round(self.disk_safety_margin_bytes / (1024 ** 3), 2)}, "
+            f"shared_disk_reservation={self._using_shared_reservation}"
         )
 
     def _estimate_space_targets(self, sra_path: str) -> tuple:
@@ -771,7 +783,10 @@ class SRAConverter:
             )
             sra_size = 0
 
-        required_bytes = int(sra_size * self.required_size_factor) + self.disk_safety_margin_bytes
+        # Only additional headroom is needed at admission time because the
+        # source .sra is already occupying space on disk.
+        required_growth_factor = max(0.0, self.required_size_factor - 1.0)
+        required_bytes = int(sra_size * required_growth_factor) + self.disk_safety_margin_bytes
         reserved_bytes = int(sra_size * self.reserve_size_factor)
         return sra_size, required_bytes, reserved_bytes
 
@@ -820,6 +835,24 @@ class SRAConverter:
                     f"reserved={reserved_before / (1024 ** 3):.2f}GB)"
                 )
             time.sleep(self.probing_sec)
+
+    def _disk_headroom_snapshot(self, required_bytes: int) -> tuple:
+        """
+        Return current disk-admission state as
+        (has_headroom, free_bytes, reserved_bytes, effective_free_bytes).
+        """
+        free_bytes = shutil.disk_usage(self.work_dir).free
+        with self._disk_reserved_bytes.get_lock():
+            reserved_before = int(self._disk_reserved_bytes.value)
+        effective_free = max(0, free_bytes - reserved_before)
+        return effective_free >= required_bytes, free_bytes, reserved_before, effective_free
+
+    def _publish_pending_headroom(self, required_bytes: int):
+        """Publish queued conversion runway requirement for download admission."""
+        if self._shared_pending_headroom_bytes is None:
+            return
+        with self._shared_pending_headroom_bytes.get_lock():
+            self._shared_pending_headroom_bytes.value = max(0, int(required_bytes))
 
     def _reserve_disk_for_job(self, sra_path: str, reserved_bytes: int) -> int:
         """Register reserved bytes for a job after admission, before launch."""
@@ -1002,57 +1035,138 @@ class SRAConverter:
             poll_interval=self.probing_sec,
         )
 
-        while not self._stop_event.is_set():
-            # ── (a) pull next file ─────────────────────────────────────────
-            # FIX [Img #3]: catch queue.Empty specifically — not bare Exception
-            # which would swallow programming errors and make them silent.
-            try:
-                sra_path = self.processing_queue.get(timeout=2.0)
-            except queue.Empty:
-                continue
+        # Once we consume the terminal sentinel from processing_queue, no new
+        # conversion inputs will arrive. Keep draining deferred files without
+        # requeueing the sentinel to avoid an infinite sentinel/deferred loop.
+        seen_terminal_sentinel = False
+        terminal_deferred_since = None
+        terminal_stall_timeout_sec = max(300.0, 30.0 * float(self.probing_sec))
 
-            if sra_path is None:            # sentinel value — no more files
-                logging.info("[SRAConverter] Received sentinel, dispatcher exiting")
-                self._dispatcher_done.set()  # unblock stop() (Bug #6 fix)
+        while not self._stop_event.is_set():
+            deferred_paths = []
+            deferred_min_required = None
+            deferred_min_extra_required = None
+            deferred_wait = False
+            selected = None
+
+            while not self._stop_event.is_set():
+                try:
+                    if deferred_paths:
+                        sra_path = self.processing_queue.get_nowait()
+                    else:
+                        sra_path = self.processing_queue.get(timeout=2.0)
+                except queue.Empty:
+                    break
+
+                if sra_path is None:
+                    seen_terminal_sentinel = True
+                    break
+
+                import re
+                SRA_FILE_RE = re.compile(
+                    r'^(?:[SED]RR\d+)$|\.(?:sra|lite\.\d+|\d+)$',
+                    re.IGNORECASE,
+                )
+
+                if not SRA_FILE_RE.search(os.path.basename(sra_path)):
+                    logging.warning(
+                        f"[SRAConverter] Skipping non-SRA file (not convertible by fasterq-dump): {sra_path}"
+                    )
+                    self.move_queue.put(sra_path)
+                    continue
+
+                logging.info(f"[SRAConverter] Dequeued: {sra_path}")
+
+                while self._active_jobs.value >= self.max_jobs:
+                    time.sleep(0.5)
+
+                sra_size, required_bytes, reserved_bytes = self._estimate_space_targets(sra_path)
+                has_headroom, free_bytes, reserved_before, effective_free = self._disk_headroom_snapshot(required_bytes)
+                if not has_headroom:
+                    deferred_paths.append(sra_path)
+                    if deferred_min_required is None or required_bytes < deferred_min_required:
+                        deferred_min_required = required_bytes
+                    # required_bytes is already incremental runway beyond the
+                    # source .sra footprint currently on disk.
+                    extra_required = required_bytes
+                    if deferred_min_extra_required is None or extra_required < deferred_min_extra_required:
+                        deferred_min_extra_required = extra_required
+                    deferred_wait = True
+                    defer_count = self._disk_deferral_counts.get(sra_path, 0) + 1
+                    self._disk_deferral_counts[sra_path] = defer_count
+                    if defer_count == 1 or defer_count % 5 == 0:
+                        logging.info(
+                            f"[SRAConverter] Deferring {os.path.basename(sra_path)} for now "
+                            f"(free-reserved {effective_free / (1024 ** 3):.2f}GB < "
+                            f"required {required_bytes / (1024 ** 3):.2f}GB; "
+                            f"sra={sra_size / (1024 ** 3):.2f}GB, "
+                            f"free={free_bytes / (1024 ** 3):.2f}GB, "
+                            f"reserved={reserved_before / (1024 ** 3):.2f}GB)"
+                        )
+                    continue
+
+                self._disk_deferral_counts.pop(sra_path, None)
+                selected = (sra_path, required_bytes, reserved_bytes, sra_size)
                 break
 
-            # Skip files that are clearly not SRA payloads (e.g. --fastq mode).
-            # Accept common SRA naming variants seen from NCBI sra_ftp:
-            #   SRRxxxx.sra, SRRxxxx.lite.1, SRRxxxx.1 / SRRxxxx.2, and bare SRRxxxx.
-            import re
-            SRA_FILE_RE = re.compile(
-                r'^(?:[SED]RR\d+)$|\.(?:sra|lite\.\d+|\d+)$',
-                re.IGNORECASE,
-            )
+            for deferred_path in deferred_paths:
+                self.processing_queue.put(deferred_path)
 
-            if not SRA_FILE_RE.search(os.path.basename(sra_path)):
-                logging.warning(
-                    f"[SRAConverter] Skipping non-SRA file (not convertible by fasterq-dump): {sra_path}"
-                )
-                self.move_queue.put(sra_path)
+            # Publish only incremental runway needed by the cheapest deferred
+            # conversion. Deferred .sra files already occupy disk and are
+            # reflected in free-space snapshots.
+            self._publish_pending_headroom(deferred_min_extra_required or 0)
+
+            if selected is None:
+                if seen_terminal_sentinel and not deferred_paths:
+                    logging.info("[SRAConverter] Received sentinel, dispatcher exiting")
+                    self._dispatcher_done.set()
+                    break
+
+                if seen_terminal_sentinel and deferred_paths and self._active_jobs.value == 0:
+                    now = time.time()
+                    if terminal_deferred_since is None:
+                        terminal_deferred_since = now
+                        logging.warning(
+                            f"[SRAConverter] Sentinel received with {len(deferred_paths)} deferred file(s) "
+                            "and no active jobs; waiting for external disk relief"
+                        )
+                    elif (now - terminal_deferred_since) >= terminal_stall_timeout_sec:
+                        with self._failed_count.get_lock():
+                            self._failed_count.value += len(deferred_paths)
+                        self._publish_pending_headroom(0)
+                        logging.error(
+                            f"[SRAConverter] Deferred queue stalled for "
+                            f"{terminal_stall_timeout_sec:.0f}s after sentinel with no active jobs; "
+                            f"marking {len(deferred_paths)} deferred file(s) as failed and exiting dispatcher"
+                        )
+                        self._dispatcher_done.set()
+                        break
+                else:
+                    terminal_deferred_since = None
+
+                if deferred_wait:
+                    time.sleep(self.probing_sec)
                 continue
 
-            logging.info(f"[SRAConverter] Dequeued: {sra_path}")
+            terminal_deferred_since = None
 
-            # ── (b) sanity ceiling — wait if too many jobs already running ──
-            while self._active_jobs.value >= self.max_jobs:
-                time.sleep(0.5)
+            sra_path, required_bytes, reserved_bytes, sra_size = selected
 
-            # ── (c) disk admission — ensure enough NVMe free space ──────────
-            sra_size, required_bytes, reserved_bytes = self._estimate_space_targets(sra_path)
-            self._wait_for_disk_headroom(sra_path, required_bytes, sra_size)
+            # Guard against path disappearance between admission and launch.
+            # If the source is gone, mark failed and continue instead of
+            # crashing the dispatcher thread.
+            if not os.path.exists(sra_path):
+                with self._failed_count.get_lock():
+                    self._failed_count.value += 1
+                logging.error(
+                    f"[SRAConverter] Source disappeared before launch: {sra_path}"
+                )
+                continue
 
-            # ── (d) admission gate — wait for CPU + NVMe headroom ──────────
-            # The dispatcher only exits via the sentinel from now on, so
-            # pass stop_event=None — we no longer want the gate to abort
-            # mid-drain (that was the original Bug #6 root cause).
-            # Never gate the first running job: with no concurrent conversion,
-            # there is nothing for the gate to arbitrate.
             if self._active_jobs.value > 0:
                 granted = gate.admit(stop_event=None)
                 if not granted:
-                    # Should never happen now that we pass stop_event=None,
-                    # but keep as a last-resort safety net.
                     logging.warning(
                         f"[SRAConverter] AdmissionGate returned False unexpectedly for "
                         f"{os.path.basename(sra_path)} — requeueing"
@@ -1070,13 +1184,9 @@ class SRAConverter:
                     f"— launching first job for {os.path.basename(sra_path)}"
                 )
 
-            # ── (e) launch worker process ───────────────────────────────────
             self._job_id_counter += 1
             job_id = self._job_id_counter
 
-            # FIX [Img #5]: daemon=False so if this parent thread exits
-            # unexpectedly, the OS does not tear down an in-progress
-            # fasterq-dump or pigz and leave a corrupt output file.
             p = mp.Process(
                 target=_conversion_worker,
                 args=(
@@ -1092,21 +1202,24 @@ class SRAConverter:
                     self._removed_sra_bytes,
                     self._removed_fastq_bytes,
                 ),
-                daemon=False,   # FIX [Img #5]
+                daemon=False,
             )
             reserved_after = self._reserve_disk_for_job(sra_path, reserved_bytes)
+            # Publish the job as active before the child can emit a result.
+            # Otherwise a fast-failing worker can be collected and decremented
+            # before this increment happens, leaking _active_jobs by +1.
+            with self._active_jobs.get_lock():
+                self._active_jobs.value += 1
             try:
                 p.start()
             except Exception:
+                with self._active_jobs.get_lock():
+                    self._active_jobs.value = max(0, self._active_jobs.value - 1)
                 self._release_disk_reservation(sra_path)
                 raise
 
-            # FIX [My #1]: hold _procs_lock while appending
             with self._procs_lock:
                 self._worker_procs.append(p)
-
-            with self._active_jobs.get_lock():
-                self._active_jobs.value += 1
 
             logging.info(
                 f"[SRAConverter] Job #{job_id} started for {os.path.basename(sra_path)} "
@@ -1116,8 +1229,6 @@ class SRAConverter:
                 f"reserved_total={reserved_after / (1024 ** 3):.2f}GB)"
             )
 
-        # Reached only if _stop_event fired before a sentinel arrived (e.g. SIGINT).
-        # Make sure stop() doesn't hang indefinitely waiting for _dispatcher_done.
         self._dispatcher_done.set()
 
     def _result_collector_loop(self):

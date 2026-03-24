@@ -27,6 +27,16 @@ from ncbi_lookup import get_ncbi_urls as shared_get_ncbi_urls
 # Suppress FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+RUN_LOG_DIR = os.path.join("logs", "fastbiodl")
+
+
+def _accession_group_name(input_path: str) -> str:
+    """Derive a safe folder name from the accession input filename."""
+    raw_name = os.path.splitext(os.path.basename(input_path))[0] or "accessions"
+    safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in raw_name)
+    safe_name = safe_name.strip("._-")
+    return safe_name or "accessions"
+
 #############################
 # NCBI URL fetching
 #############################
@@ -67,6 +77,9 @@ class SegmentedDownloader:
         process_id: int = 0,
         process_counter: mp.Value = None,
         active_connections: mp.Value = None,
+        disk_reserved_bytes: mp.Value = None,
+        min_pending_conversion_bytes: mp.Value = None,
+        disk_safety_margin_bytes: int = 0,
         max_retries: int = 3
     ):
         self.session = session
@@ -80,9 +93,13 @@ class SegmentedDownloader:
         self.process_id = process_id
         self.process_counter = process_counter
         self.active_connections = active_connections
+        self.disk_reserved_bytes = disk_reserved_bytes
+        self.min_pending_conversion_bytes = min_pending_conversion_bytes
+        self.disk_safety_margin_bytes = max(0, int(disk_safety_margin_bytes))
         self.max_retries = max_retries
         self.total_size = 0
         self.segments: List[Tuple[int, int]] = []
+        self.current_reserved_bytes = 0
         
         # Batched counter updates to reduce lock contention
         self.local_bytes_accumulated = 0
@@ -125,6 +142,55 @@ class SegmentedDownloader:
                 with self.process_counter.get_lock():
                     self.process_counter.value += self.local_bytes_accumulated
             self.local_bytes_accumulated = 0
+
+    async def reserve_disk_space(self, required_bytes: int):
+        """
+        Reserve download bytes before starting a task so workers cannot overcommit
+        disk capacity concurrently.
+        """
+        required_bytes = max(0, int(required_bytes))
+        if required_bytes == 0 or self.disk_reserved_bytes is None:
+            return
+
+        if self.current_reserved_bytes > 0:
+            return
+
+        while True:
+            pending_headroom = 0
+            if self.min_pending_conversion_bytes is not None:
+                with self.min_pending_conversion_bytes.get_lock():
+                    pending_headroom = int(self.min_pending_conversion_bytes.value)
+
+            needed_total = required_bytes + self.disk_safety_margin_bytes + pending_headroom
+            with self.disk_reserved_bytes.get_lock():
+                free_now = available_space_bytes(download_dir)
+                effective_free = free_now - self.disk_reserved_bytes.value
+                if effective_free >= needed_total:
+                    self.disk_reserved_bytes.value += required_bytes
+                    self.current_reserved_bytes = required_bytes
+                    logging.debug(
+                        f"[Download #{self.process_id}] Reserved {required_bytes} bytes "
+                        f"(shared reserved={self.disk_reserved_bytes.value}, free={free_now}, "
+                        f"pending_conversion_headroom={pending_headroom})"
+                    )
+                    return
+
+            if transfer_done.value == 1:
+                raise asyncio.CancelledError("Transfer stopping while waiting for disk space")
+
+            await asyncio.sleep(0.5)
+
+    def release_disk_space(self):
+        """Release previously reserved download bytes."""
+        if self.current_reserved_bytes <= 0 or self.disk_reserved_bytes is None:
+            return
+
+        with self.disk_reserved_bytes.get_lock():
+            self.disk_reserved_bytes.value = max(
+                0,
+                self.disk_reserved_bytes.value - self.current_reserved_bytes
+            )
+        self.current_reserved_bytes = 0
     
     async def probe_range_support(self) -> Tuple[Optional[int], bool]:
         """
@@ -333,7 +399,12 @@ class SegmentedDownloader:
         # Decide on strategy
         if not supports_ranges:
             logging.debug(f"Server doesn't support ranges for {self.url}, using single connection")
-            return await self.download_single_connection(supports_ranges=False, resume_from=existing_size)
+            remaining_bytes = max(0, file_size - existing_size)
+            return await self.download_single_connection(
+                supports_ranges=False,
+                resume_from=existing_size,
+                expected_remaining_bytes=remaining_bytes
+            )
         
         # Use segmented download
         return await self.download_segmented(file_size)
@@ -361,7 +432,10 @@ class SegmentedDownloader:
                         logging.debug(f"Server doesn't support ranges for {self.url}, using single connection")
                         content_length = resp.headers.get('Content-Length')
                         file_size = int(content_length) if content_length else None
-                        return await self.download_single_connection(supports_ranges=False)
+                        return await self.download_single_connection(
+                            supports_ranges=False,
+                            expected_remaining_bytes=file_size if file_size else 0
+                        )
                     else:
                         raise Exception(f"Unexpected status {resp.status} during range probe")
             except Exception as e:
@@ -410,6 +484,9 @@ class SegmentedDownloader:
             if os.path.exists(self.meta_path):
                 os.remove(self.meta_path)
             return True, False, 0  # No connections needed
+
+        remaining_bytes = sum((end - start + 1) for _, start, end in remaining_segments)
+        await self.reserve_disk_space(remaining_bytes)
         
         logging.info(
             f"[Download #{self.process_id}] Downloading {os.path.basename(self.local_path)} "
@@ -486,6 +563,7 @@ class SegmentedDownloader:
         finally:
             if fd is not None:
                 os.close(fd)
+            self.release_disk_space()
             # Decrement active connections
             if self.active_connections is not None:
                 with self.active_connections.get_lock():
@@ -494,7 +572,8 @@ class SegmentedDownloader:
     async def download_single_connection(
         self, 
         supports_ranges: bool = True,
-        resume_from: int = 0
+        resume_from: int = 0,
+        expected_remaining_bytes: int = 0
     ) -> Tuple[bool, bool, int]:
         """
         Fallback single-connection download with resume support.
@@ -507,6 +586,8 @@ class SegmentedDownloader:
         if self.active_connections is not None:
             with self.active_connections.get_lock():
                 self.active_connections.value += num_connections
+
+        await self.reserve_disk_space(expected_remaining_bytes)
         
         try:
             # Retry logic
@@ -591,6 +672,7 @@ class SegmentedDownloader:
             
             return False, False, num_connections  # Failed after all retries
         finally:
+            self.release_disk_space()
             # Decrement active connections
             if self.active_connections is not None:
                 with self.active_connections.get_lock():
@@ -604,6 +686,9 @@ async def download_worker_async(
     failed_count: mp.Value,
     process_counter: mp.Value,
     active_connections: mp.Value,
+    disk_reserved_bytes: mp.Value,
+    min_pending_conversion_bytes: mp.Value,
+    disk_safety_margin_bytes: int,
     segment_size: int = 10 * 1024 * 1024,
     max_segments: int = 8,
     max_retries: int = 3,
@@ -663,6 +748,9 @@ async def download_worker_async(
                     process_id=process_id,
                     process_counter=process_counter,
                     active_connections=active_connections,
+                    disk_reserved_bytes=disk_reserved_bytes,
+                    min_pending_conversion_bytes=min_pending_conversion_bytes,
+                    disk_safety_margin_bytes=disk_safety_margin_bytes,
                     max_retries=max_retries
                 )
                 
@@ -712,6 +800,9 @@ def download_file_worker(
     failed_count: mp.Value,
     process_counter: mp.Value,
     active_connections: mp.Value,
+    disk_reserved_bytes: mp.Value,
+    min_pending_conversion_bytes: mp.Value,
+    disk_safety_margin_bytes: int,
     processing_queue
 ):
     """
@@ -728,6 +819,9 @@ def download_file_worker(
         failed_count,
         process_counter,
         active_connections,
+        disk_reserved_bytes,
+        min_pending_conversion_bytes,
+        disk_safety_margin_bytes,
         segment_size, 
         max_segments,
         max_retries,
@@ -745,7 +839,10 @@ def report_network_throughput(process_counters: List[mp.Value], active_connectio
     """
     previous_total, previous_time = 0, 0
     t = time.time()
-    fname = f'logs/fastbiodl/log_download_{datetime.datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S")}.csv'
+    fname = os.path.join(
+        RUN_LOG_DIR,
+        f'log_download_{datetime.datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S")}.csv'
+    )
     
     # Write CSV header
     with open(fname, 'w') as f:
@@ -913,13 +1010,33 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, graceful_exit)
     signal.signal(signal.SIGTERM, graceful_exit)
 
-    # Make log directory
-    if not os.path.exists("logs/fastbiodl"):
-        os.makedirs("logs/fastbiodl")
+    parser = argparse.ArgumentParser(
+        description="Production-grade parallel NCBI SRA downloader"
+    )
+    parser.add_argument("-i", "--input", required=True,
+                        help="Text file: one accession per line.")
+    parser.add_argument("-o", "--outdir", default="fastbiodl/output/",
+                        help="Final destination for .fastq.gz files (should be on DISK for benchmark).")
+    parser.add_argument("--fastq", action="store_true",
+                        help="Use fastq_ftp instead of sra_ftp")
+    parser.add_argument("--segment-size", type=int, default=512,
+                        help="Segment size in MB (default: 512)")
+    parser.add_argument("--max-segments", type=int, default=8,
+                        help="Max segments per file (default: 8)")
+    parser.add_argument("--max-retries", type=int, default=3,
+                        help="Max retry attempts per task (default: 3)")
+    args = parser.parse_args()
+
+    accession_group = _accession_group_name(args.input)
+    RUN_LOG_DIR = os.path.join("logs", "fastbiodl", accession_group)
+    os.makedirs(RUN_LOG_DIR, exist_ok=True)
 
     # Configure logging
     log_FORMAT = '%(created)f -- %(levelname)s: %(message)s'
-    log_file = f'logs/fastbiodl/fastbiodl.{datetime.datetime.now().strftime("%m_%d_%Y_%H_%M_%S")}.log'
+    log_file = os.path.join(
+        RUN_LOG_DIR,
+        f'fastbiodl.{datetime.datetime.now().strftime("%m_%d_%Y_%H_%M_%S")}.log'
+    )
     
     if configurations.get("loglevel") == "debug":
         logging.basicConfig(
@@ -943,22 +1060,7 @@ if __name__ == '__main__':
             ]
         )
 
-    parser = argparse.ArgumentParser(
-        description="Production-grade parallel NCBI SRA downloader"
-    )
-    parser.add_argument("-i", "--input", required=True,
-                        help="Text file: one accession per line.")
-    parser.add_argument("-o", "--outdir", default="fastbiodl/output/",
-                        help="Final destination for .fastq.gz files (should be on DISK for benchmark).")
-    parser.add_argument("--fastq", action="store_true",
-                        help="Use fastq_ftp instead of sra_ftp")
-    parser.add_argument("--segment-size", type=int, default=512,
-                        help="Segment size in MB (default: 512)")
-    parser.add_argument("--max-segments", type=int, default=8,
-                        help="Max segments per file (default: 8)")
-    parser.add_argument("--max-retries", type=int, default=3,
-                        help="Max retry attempts per task (default: 3)")
-    args = parser.parse_args()
+    logging.info(f"Logging directory: {RUN_LOG_DIR}")
 
     # Set configuration parameters
     configurations["cpu_count"] = mp.cpu_count()
@@ -994,6 +1096,11 @@ if __name__ == '__main__':
     move_complete = mp.Value("i", 0)
     transfer_done = mp.Value("i", 0)
     active_connections = mp.Value("i", 0)  # Track actual connection count
+    shared_disk_reserved_bytes = mp.Value("Q", 0)  # Shared across downloader + converter
+    shared_min_pending_conversion_bytes = mp.Value("Q", 0)  # Smallest queued conversion headroom requirement
+    download_disk_safety_margin_bytes = int(
+        float(configurations.get("download_disk_safety_margin_gb", 2.0)) * 1024 * 1024 * 1024
+    )
 
     # Use deque instead of Manager list for better performance
     throughput_logs = deque(maxlen=10000)
@@ -1063,7 +1170,18 @@ if __name__ == '__main__':
     download_workers = [
         mp.Process(
             target=download_file_worker, 
-            args=(i, download_queue, failed_queue, failed_count, process_counters[i], active_connections, processing_queue)
+            args=(
+                i,
+                download_queue,
+                failed_queue,
+                failed_count,
+                process_counters[i],
+                active_connections,
+                shared_disk_reserved_bytes,
+                shared_min_pending_conversion_bytes,
+                download_disk_safety_margin_bytes,
+                processing_queue,
+            )
         ) 
         for i in range(num_workers)
     ]
@@ -1087,6 +1205,8 @@ if __name__ == '__main__':
         reserve_size_factor=configurations.get("conversion_reserve_factor", 8.0),
         pigz_reserve_factor=configurations.get("conversion_pigz_reserve_factor", 3.0),
         disk_safety_margin_gb=configurations.get("conversion_disk_safety_margin_gb", 0.0),
+        shared_reserved_bytes=shared_disk_reserved_bytes,
+        shared_pending_headroom_bytes=shared_min_pending_conversion_bytes,
     )
     converter.start()
 
@@ -1097,7 +1217,7 @@ if __name__ == '__main__':
         root_dir=root_dir,
         config=configurations,
     )
-    mover.start()
+    mover.begin()
 
     # Start reporting and optimization
     start = mp.Value("d", time.time())
@@ -1211,7 +1331,7 @@ if __name__ == '__main__':
     }
 
     ts_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    timing_json = f"logs/fastbiodl/benchmark_fastbiodl_results_{ts_str}.json"
+    timing_json = os.path.join(RUN_LOG_DIR, f"benchmark_fastbiodl_results_{ts_str}.json")
     with open(timing_json, "w") as _f:
         _json.dump(timing_result, _f, indent=2)
 
@@ -1238,10 +1358,26 @@ if __name__ == '__main__':
         f"{'='*60}"
     )
     
-    # Report failed downloads
+    # Report failed downloads.
+    # mp.Queue.empty() is not reliable across processes, so drain by expected
+    # count with a bounded wait to avoid dropping late-arriving failures.
     failed_list = []
-    while not failed_queue.empty():
-        failed_list.append(failed_queue.get())
+    expected_failed = max(0, failed_count.value)
+    drain_deadline = time.time() + 10.0
+    while len(failed_list) < expected_failed:
+        remaining = drain_deadline - time.time()
+        if remaining <= 0:
+            break
+        try:
+            failed_list.append(failed_queue.get(timeout=min(1.0, remaining)))
+        except queue.Empty:
+            continue
+
+    if len(failed_list) < expected_failed:
+        logging.warning(
+            f"Failed queue drain timed out: expected {expected_failed}, "
+            f"collected {len(failed_list)}"
+        )
     
     if failed_list:
         logging.warning(f"Failed to download {len(failed_list)} files:")
