@@ -115,12 +115,31 @@ class SegmentedDownloader:
         except:
             return None
     
-    def write_metadata(self, file_size: int, segments: List[Tuple[int, int]], completed: Set[int]):
-        """Write segment completion metadata to .meta file with atomic write."""
+    def write_metadata(
+        self,
+        file_size: int,
+        segments: List[Tuple[int, int]],
+        completed: Set[int],
+        partial_offsets: Optional[Dict[int, int]] = None,
+    ):
+        """Write segment completion + partial resume metadata using atomic replace."""
+        normalized_offsets: Dict[str, int] = {}
+        if partial_offsets:
+            for seg_idx, offset in partial_offsets.items():
+                if seg_idx in completed:
+                    continue
+                if seg_idx < 0 or seg_idx >= len(segments):
+                    continue
+                seg_start, seg_end = segments[seg_idx]
+                clamped = max(seg_start, min(int(offset), seg_end + 1))
+                if clamped > seg_start:
+                    normalized_offsets[str(seg_idx)] = clamped
+
         metadata = {
             'file_size': file_size,
             'segments': [[s, e] for s, e in segments],  # Store as lists for JSON compatibility
-            'completed_indices': list(completed)
+            'completed_indices': list(completed),
+            'partial_offsets': normalized_offsets,
         }
         # Atomic write: write to temp file, then rename
         meta_tmp = self.meta_path + '.tmp'
@@ -134,6 +153,40 @@ class SegmentedDownloader:
         """Mark a segment as complete and update metadata."""
         completed.add(segment_idx)
         self.write_metadata(file_size, segments, completed)
+
+    def _load_partial_offsets(
+        self,
+        metadata: Dict,
+        segments: List[Tuple[int, int]],
+        completed: Set[int],
+    ) -> Dict[int, int]:
+        """Load and validate partial segment resume offsets from metadata."""
+        raw_offsets = metadata.get('partial_offsets', {})
+        if not isinstance(raw_offsets, dict):
+            return {}
+
+        offsets: Dict[int, int] = {}
+        for key, value in raw_offsets.items():
+            try:
+                seg_idx = int(key)
+                offset = int(value)
+            except (TypeError, ValueError):
+                continue
+
+            if seg_idx in completed:
+                continue
+            if seg_idx < 0 or seg_idx >= len(segments):
+                continue
+
+            seg_start, seg_end = segments[seg_idx]
+            clamped = max(seg_start, min(offset, seg_end + 1))
+            if clamped >= seg_end + 1:
+                completed.add(seg_idx)
+                continue
+            if clamped > seg_start:
+                offsets[seg_idx] = clamped
+
+        return offsets
         
     def flush_counter(self, force=False):
         """Flush accumulated bytes to shared counter."""
@@ -252,11 +305,12 @@ class SegmentedDownloader:
         return segment_list
     
     async def download_segment_streaming(
-        self, 
+        self,
         segment_id: int,
-        start: int, 
+        start: int,
         end: int,
-        fd: int
+        fd: int,
+        progress_offsets: Dict[int, int],
     ) -> Tuple[int, int]:
         """
         Download a single segment and write directly to file descriptor at correct offset.
@@ -266,6 +320,7 @@ class SegmentedDownloader:
         chunk_size = 1024 * 1024  # 128KB chunks
         bytes_written = 0
         current_offset = start
+        progress_offsets[segment_id] = start
         
         # Retry logic with exponential backoff
         for attempt in range(self.max_retries):
@@ -322,6 +377,7 @@ class SegmentedDownloader:
                         chunk_len = len(chunk)
                         current_offset += chunk_len
                         bytes_written += chunk_len
+                        progress_offsets[segment_id] = current_offset
                         
                         # Accumulate locally, flush periodically
                         self.local_bytes_accumulated += chunk_len
@@ -336,6 +392,7 @@ class SegmentedDownloader:
                 
                 # Success - flush any remaining bytes and return
                 self.flush_counter(force=True)
+                progress_offsets[segment_id] = end + 1
                 return segment_id, bytes_written
                 
             except asyncio.CancelledError:
@@ -447,15 +504,23 @@ class SegmentedDownloader:
         # Load metadata to see which segments are already complete
         metadata = self.read_metadata()
         completed_segments: Set[int] = set()
+        partial_offsets: Dict[int, int] = {}
         
         if metadata:
             # Validate metadata matches current file/segments
             if (metadata.get('file_size') == file_size and 
                 metadata.get('segments') == [[s, e] for s, e in segments]):  # Compare as lists
                 completed_segments = set(metadata.get('completed_indices', []))
+                partial_offsets = self._load_partial_offsets(metadata, segments, completed_segments)
+                resumed_bytes = sum(
+                    max(0, partial_offsets.get(i, start) - start)
+                    for i, (start, end) in enumerate(segments)
+                    if i not in completed_segments
+                )
                 logging.info(
                     f"[Download #{self.process_id}] Resume: {len(completed_segments)}/{len(segments)} "
-                    f"segments already complete for {os.path.basename(self.local_path)}"
+                    f"segments already complete, partial credit {resumed_bytes} bytes "
+                    f"for {os.path.basename(self.local_path)}"
                 )
             else:
                 logging.warning(
@@ -467,10 +532,11 @@ class SegmentedDownloader:
                 if os.path.exists(self.part_path):
                     os.remove(self.part_path)
                 completed_segments = set()
+                partial_offsets = {}
         
         # Determine remaining segments
         remaining_segments = [
-            (i, start, end) 
+            (i, partial_offsets.get(i, start), end)
             for i, (start, end) in enumerate(segments) 
             if i not in completed_segments
         ]
@@ -497,6 +563,9 @@ class SegmentedDownloader:
         
         # Track actual connections we'll use
         num_connections = len(remaining_segments)
+        progress_offsets: Dict[int, int] = {
+            i: start for i, start, _ in remaining_segments
+        }
         
         # Update active connections counter
         if self.active_connections is not None:
@@ -515,7 +584,7 @@ class SegmentedDownloader:
             fd = os.open(self.part_path, os.O_CREAT | os.O_RDWR)
             # Download all remaining segments concurrently
             tasks = [
-                self.download_segment_streaming(i, start, end, fd)
+                self.download_segment_streaming(i, start, end, fd, progress_offsets)
                 for i, start, end in remaining_segments
             ]
             
@@ -528,10 +597,22 @@ class SegmentedDownloader:
                 if isinstance(result, tuple):
                     seg_id, bytes_written = result
                     completed_segments.add(seg_id)
+
+            latest_partial_offsets: Dict[int, int] = {}
+            for seg_id, seg_start, seg_end in remaining_segments:
+                if seg_id in completed_segments:
+                    continue
+                latest = progress_offsets.get(seg_id, seg_start)
+                latest = max(seg_start, min(latest, seg_end + 1))
+                if latest >= seg_end + 1:
+                    completed_segments.add(seg_id)
+                    continue
+                if latest > seg_start:
+                    latest_partial_offsets[seg_id] = latest
             
             # Check if paused and save progress before raising
             if paused:
-                self.write_metadata(file_size, segments, completed_segments)
+                self.write_metadata(file_size, segments, completed_segments, latest_partial_offsets)
                 return False, True, num_connections  # Not successful, but was paused
             
             # Check if all segments completed
@@ -547,17 +628,33 @@ class SegmentedDownloader:
                 return True, False, num_connections
             else:
                 # Some segments failed
-                self.write_metadata(file_size, segments, completed_segments)
+                self.write_metadata(file_size, segments, completed_segments, latest_partial_offsets)
                 raise Exception(f"Not all segments completed: {len(completed_segments)}/{len(segments)}")
             
         except asyncio.CancelledError:
             # Save progress to metadata before exiting
-            self.write_metadata(file_size, segments, completed_segments)
+            latest_partial_offsets: Dict[int, int] = {}
+            for seg_id, seg_start, seg_end in remaining_segments:
+                if seg_id in completed_segments:
+                    continue
+                latest = progress_offsets.get(seg_id, seg_start)
+                latest = max(seg_start, min(latest, seg_end + 1))
+                if latest > seg_start and latest < seg_end + 1:
+                    latest_partial_offsets[seg_id] = latest
+            self.write_metadata(file_size, segments, completed_segments, latest_partial_offsets)
             logging.info(f"[Download #{self.process_id}] Paused {os.path.basename(self.local_path)}")
             return False, True, num_connections  # Not successful, but was paused (not failed)
         except Exception as e:
             # Save whatever progress we have
-            self.write_metadata(file_size, segments, completed_segments)
+            latest_partial_offsets: Dict[int, int] = {}
+            for seg_id, seg_start, seg_end in remaining_segments:
+                if seg_id in completed_segments:
+                    continue
+                latest = progress_offsets.get(seg_id, seg_start)
+                latest = max(seg_start, min(latest, seg_end + 1))
+                if latest > seg_start and latest < seg_end + 1:
+                    latest_partial_offsets[seg_id] = latest
+            self.write_metadata(file_size, segments, completed_segments, latest_partial_offsets)
             logging.error(f"[Download #{self.process_id}] Failed {os.path.basename(self.local_path)}: {e}")
             return False, False, num_connections  # Failed, not paused
         finally:
@@ -1077,7 +1174,7 @@ if __name__ == '__main__':
     download_dir = args.outdir
 
     # WITH:
-    tmpfs_dir    = f"/mnt/nvme0n1/fastbiodl_{os.getpid()}/"
+    tmpfs_dir    = f"/fastbiodl_exp/fastbiodl_{os.getpid()}/"
     download_dir = tmpfs_dir                # downloads land here
     root_dir     = args.outdir              # final destination (NVMe / lustre / etc.)
     os.makedirs(tmpfs_dir, exist_ok=True)
