@@ -1174,7 +1174,7 @@ if __name__ == '__main__':
     download_dir = args.outdir
 
     # WITH:
-    tmpfs_dir    = f"/fastbiodl_exp/fastbiodl_{os.getpid()}/"
+    tmpfs_dir    = f"/mnt/nvme0n1/fastbiodl_{os.getpid()}/"
     download_dir = tmpfs_dir                # downloads land here
     root_dir     = args.outdir              # final destination (NVMe / lustre / etc.)
     os.makedirs(tmpfs_dir, exist_ok=True)
