@@ -4,7 +4,7 @@
 set -euo pipefail
 
 WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NVME_MOUNT="/mnt/nvme0n1"
+NVME_MOUNT="/mnt/raid0"
 LOG_FILE="$WORKDIR/clear_files_deletion.log"
 CONTEXT="${CLEAR_CONTEXT:-manual}"
 

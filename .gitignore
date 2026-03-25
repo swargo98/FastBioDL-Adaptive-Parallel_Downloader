@@ -3,6 +3,8 @@
 *.json
 *.csv
 *.pyc
+*.tar.gz
+*.fastq.gz
 
 # Ignore specific directories
 aria2c/
