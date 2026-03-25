@@ -1290,7 +1290,7 @@ if __name__ == '__main__':
         processing_queue=processing_queue,
         move_queue=move_queue,
         work_dir=tmpfs_dir,
-        nvme_device="nvme0n1",
+        nvme_device="md0",
         threads_per_job=configurations.get("conversion_threads", 8),
         cpu_threshold=configurations.get("cpu_threshold", 85.0),
         nvme_threshold=configurations.get("nvme_threshold", 92.0),

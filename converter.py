@@ -15,7 +15,7 @@ Usage (from fastbiodl_upgrade.py):
         processing_queue=processing_queue,
         move_queue=move_queue,
         work_dir="/mnt/raid0/fastbiodl/",
-        nvme_device="nvme0n1",
+        nvme_device="md0",
         threads_per_job=4,
         cpu_threshold=85.0,
         nvme_threshold=92.0,
