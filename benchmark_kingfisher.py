@@ -44,7 +44,7 @@ Usage
 -----
   python benchmark_kingfisher.py -i accessions.txt \\
       --sra-dir   kingfisher/sra \\
-      --fastq-dir /mnt/nvme0n1/benchmark/kingfisher/fastq \\
+      --fastq-dir /mnt/raid0/benchmark/kingfisher/fastq \\
       --out-dir   kingfisher/output \\
       --threads 8
 
@@ -171,7 +171,7 @@ def main():
                         default="kingfisher/sra",
                         help="Destination for kingfisher get output (DISK)")
     parser.add_argument("--fastq-dir",
-                        default="/mnt/nvme0n1/benchmark/kingfisher/fastq",
+                        default="/mnt/raid0/benchmark/kingfisher/fastq",
                         help="Destination for converted .fastq files (NVMe recommended)")
     parser.add_argument("--out-dir",
                         default="kingfisher/output",

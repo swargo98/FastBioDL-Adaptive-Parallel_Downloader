@@ -18,7 +18,7 @@ Usage
 -----
   python benchmark_sratools.py -i accessions.txt \\
       --sra-dir  /mnt/disk/benchmark/sratools/sra \\
-      --fastq-dir /mnt/nvme0n1/benchmark/sratools/fastq \\
+      --fastq-dir /mnt/raid0/benchmark/sratools/fastq \\
       --out-dir  /mnt/disk/benchmark/sratools/output \\
       --threads 8
 
@@ -239,7 +239,7 @@ def main():
                         default="sratools/sra",
                         help="Destination for prefetch output (DISK)")
     parser.add_argument("--fastq-dir",
-                        default="/mnt/nvme0n1/benchmark/sratools/fastq",
+                        default="/mnt/raid0/benchmark/sratools/fastq",
                         help="Destination for fasterq-dump output (NVMe recommended for temp I/O)")
     parser.add_argument("--out-dir",
                         default="sratools/output",

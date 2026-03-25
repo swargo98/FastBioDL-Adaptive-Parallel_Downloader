@@ -51,7 +51,7 @@ export NCBI_API_KEY="your_ncbi_api_key"
 ```bash
 mkdir -p benchmark/fastbiodl/{small,medium,large}
 mkdir -p benchmark/aria2c/{small,medium,large}/{sra,output}
-mkdir -p /mnt/nvme0n1/benchmark/aria2c/{small,medium,large}/fastq
+mkdir -p /mnt/raid0/benchmark/aria2c/{small,medium,large}/fastq
 mkdir -p logs/fastbiodl logs/kingfisher
 ```
 
@@ -215,10 +215,10 @@ Tasks:
 ```bash
 rm -rf benchmark/fastbiodl/medium
 rm -rf benchmark/aria2c/medium
-rm -rf /mnt/nvme0n1/benchmark/aria2c/medium
+rm -rf /mnt/raid0/benchmark/aria2c/medium
 mkdir -p benchmark/fastbiodl/medium
 mkdir -p benchmark/aria2c/medium/{sra,output}
-mkdir -p /mnt/nvme0n1/benchmark/aria2c/medium/fastq
+mkdir -p /mnt/raid0/benchmark/aria2c/medium/fastq
 
 python fastbiodl_upgrade.py \
   -i accessions_medium_PRJNA353374.txt \
@@ -230,7 +230,7 @@ python fastbiodl_upgrade.py \
 python benchmark_aria2c_kingfisher.py \
   -i accessions_medium_PRJNA353374.txt \
   --sra-dir benchmark/aria2c/medium/sra \
-  --fastq-dir /mnt/nvme0n1/benchmark/aria2c/medium/fastq \
+  --fastq-dir /mnt/raid0/benchmark/aria2c/medium/fastq \
   --out-dir benchmark/aria2c/medium/output \
   --threads 8
 ```
@@ -240,10 +240,10 @@ python benchmark_aria2c_kingfisher.py \
 ```bash
 rm -rf benchmark/fastbiodl/large
 rm -rf benchmark/aria2c/large
-rm -rf /mnt/nvme0n1/benchmark/aria2c/large
+rm -rf /mnt/raid0/benchmark/aria2c/large
 mkdir -p benchmark/fastbiodl/large
 mkdir -p benchmark/aria2c/large/{sra,output}
-mkdir -p /mnt/nvme0n1/benchmark/aria2c/large/fastq
+mkdir -p /mnt/raid0/benchmark/aria2c/large/fastq
 
 python fastbiodl_upgrade.py \
   -i accessions_large_PRJNA200694.txt \
@@ -255,7 +255,7 @@ python fastbiodl_upgrade.py \
 python benchmark_aria2c_kingfisher.py \
   -i accessions_large_PRJNA200694.txt \
   --sra-dir benchmark/aria2c/large/sra \
-  --fastq-dir /mnt/nvme0n1/benchmark/aria2c/large/fastq \
+  --fastq-dir /mnt/raid0/benchmark/aria2c/large/fastq \
   --out-dir benchmark/aria2c/large/output \
   --threads 8
 ```
@@ -265,10 +265,10 @@ python benchmark_aria2c_kingfisher.py \
 ```bash
 rm -rf benchmark/fastbiodl/small
 rm -rf benchmark/aria2c/small
-rm -rf /mnt/nvme0n1/benchmark/aria2c/small
+rm -rf /mnt/raid0/benchmark/aria2c/small
 mkdir -p benchmark/fastbiodl/small
 mkdir -p benchmark/aria2c/small/{sra,output}
-mkdir -p /mnt/nvme0n1/benchmark/aria2c/small/fastq
+mkdir -p /mnt/raid0/benchmark/aria2c/small/fastq
 
 python fastbiodl_upgrade.py \
   -i accessions_small_PRJNA916347.txt \
@@ -280,7 +280,7 @@ python fastbiodl_upgrade.py \
 python benchmark_aria2c_kingfisher.py \
   -i accessions_small_PRJNA916347.txt \
   --sra-dir benchmark/aria2c/small/sra \
-  --fastq-dir /mnt/nvme0n1/benchmark/aria2c/small/fastq \
+  --fastq-dir /mnt/raid0/benchmark/aria2c/small/fastq \
   --out-dir benchmark/aria2c/small/output \
   --threads 8
 ```

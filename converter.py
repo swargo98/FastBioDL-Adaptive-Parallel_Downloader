@@ -14,7 +14,7 @@ Usage (from fastbiodl_upgrade.py):
     converter = SRAConverter(
         processing_queue=processing_queue,
         move_queue=move_queue,
-        work_dir="/mnt/nvme0n1/fastbiodl/",
+        work_dir="/mnt/raid0/fastbiodl/",
         nvme_device="nvme0n1",
         threads_per_job=4,
         cpu_threshold=85.0,
@@ -505,7 +505,7 @@ def _report_conversion_throughput(
     throughput_lock: Lock,
     stop_event,
     log_dir: str = "logs",
-    fastq_dir: str = "/mnt/nvme0n1/fastbiodl/fastq",
+    fastq_dir: str = "/mnt/raid0/fastbiodl/fastq",
 ):
     """
     Logs conversion throughput (MB/s of output) once per second.
@@ -686,7 +686,7 @@ class SRAConverter:
         self,
         processing_queue: mp.Queue,
         move_queue: mp.Queue,
-        work_dir: str = "/mnt/nvme0n1/fastbiodl/",
+        work_dir: str = "/mnt/raid0/fastbiodl/",
         nvme_device: str = "nvme0n1",
         threads_per_job: int = 8,
         cpu_threshold: float = 85.0,

@@ -30,7 +30,7 @@ Usage
 -----
   python benchmark_aria2c_kingfisher.py -i accessions.txt \
       --sra-dir   aria2c/sra \
-      --fastq-dir /mnt/nvme0n1/benchmark/aria2c/fastq \
+      --fastq-dir /mnt/raid0/benchmark/aria2c/fastq \
       --out-dir   aria2c/output \
       --threads 8
 
@@ -212,7 +212,7 @@ def main() -> None:
                         help="Text file with one SRA accession per line")
     parser.add_argument("--sra-dir", default="aria2c/sra",
                         help="Destination for aria2c .sra downloads (DISK)")
-    parser.add_argument("--fastq-dir", default="/mnt/nvme0n1/benchmark/aria2c/fastq",
+    parser.add_argument("--fastq-dir", default="/mnt/raid0/benchmark/aria2c/fastq",
                         help="Destination for fasterq-dump output (NVMe recommended)")
     parser.add_argument("--out-dir", default="aria2c/output",
                         help="Final destination for .fastq.gz files (DISK)")

@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # as `root_dir` when constructing FileMover (or via fastbiodl_upgrade.py's
 # --outdir flag).
 #
-#   PRODUCTION : root_dir = "/mnt/nvme0n1/fastbiodl/staging/"
+#   PRODUCTION : root_dir = "/mnt/raid0/fastbiodl/staging/"
 #   BENCHMARK  : root_dir = "/mnt/disk/benchmark/fastbiodl/output/"
 BENCHMARK_ROOT_DIR = "fastbiodl/output/"
 

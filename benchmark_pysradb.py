@@ -19,7 +19,7 @@ Usage
 -----
   python benchmark_pysradb.py -i accessions.txt \
       --sra-dir   pysradb/sra \
-      --fastq-dir /mnt/nvme0n1/benchmark/pysradb/fastq \
+      --fastq-dir /mnt/raid0/benchmark/pysradb/fastq \
       --out-dir   pysradb/output \
       --t 8 --threads 8
 """
@@ -301,7 +301,7 @@ def main() -> None:
                         help="Text file with one SRA accession per line")
     parser.add_argument("--sra-dir", default="pysradb/sra",
                         help="Destination for downloaded SRA files (DISK)")
-    parser.add_argument("--fastq-dir", default="/mnt/nvme0n1/benchmark/pysradb/fastq",
+    parser.add_argument("--fastq-dir", default="/mnt/raid0/benchmark/pysradb/fastq",
                         help="Destination for fasterq-dump output (NVMe recommended)")
     parser.add_argument("--out-dir", default="pysradb/output",
                         help="Final destination for .fastq.gz files (DISK)")

@@ -6,7 +6,7 @@ configurations = {
         "port": 21,
         "remote_dir": "/"
     },
-    "download_dir": "/mnt/nvme0n1/apd_downloads/",
+    "download_dir": "/mnt/raid0/apd_downloads/",
     "method": "gradient", # options: [gradient, bayes]
     "bayes": {
         "initial_run": 3,
