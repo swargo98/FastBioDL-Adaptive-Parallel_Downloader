@@ -13,6 +13,7 @@ import aiohttp
 from threading import Thread, Lock
 from collections import deque
 from config_fastbiodl import configurations, get_fastbiodl_tmpfs_dir
+from storage_config import get_nvme_device
 from utils import available_space, available_space_bytes
 from search import base_optimizer, gradient_opt_fast, exit_signal
 
@@ -1285,7 +1286,7 @@ if __name__ == '__main__':
         processing_queue=processing_queue,
         move_queue=move_queue,
         work_dir=tmpfs_dir,
-        nvme_device="md0",
+        nvme_device=get_nvme_device(),
         threads_per_job=configurations.get("conversion_threads", 8),
         cpu_threshold=configurations.get("cpu_threshold", 85.0),
         nvme_threshold=configurations.get("nvme_threshold", 92.0),

@@ -15,7 +15,7 @@ Usage (from fastbiodl_upgrade.py):
         processing_queue=processing_queue,
         move_queue=move_queue,
         work_dir="<local_scratch>/fastbiodl/",
-        nvme_device="md0",
+        nvme_device=os.environ.get("EXPANSE_NVME_DEVICE", "nvme0n1"),
         threads_per_job=4,
         cpu_threshold=85.0,
         nvme_threshold=92.0,

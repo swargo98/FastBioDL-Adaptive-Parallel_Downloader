@@ -22,6 +22,11 @@ def nvme_path(*parts: str) -> str:
     return os.path.join(get_nvme_base(), *parts)
 
 
+def get_nvme_device() -> str:
+    """Return the diskstats device name used for local NVMe admission control."""
+    return os.environ.get("EXPANSE_NVME_DEVICE", "nvme0n1")
+
+
 def fastbiodl_tmpfs_dir(pid: Optional[int] = None) -> str:
     """Return the per-process FastBioDL scratch directory."""
     return os.path.join(get_nvme_base(), f"fastbiodl_{os.getpid() if pid is None else pid}")

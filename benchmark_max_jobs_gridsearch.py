@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from storage_config import nvme_path
+from storage_config import get_nvme_device, nvme_path
 
 
 def resolve_tool(binary: str, script_dir: Path) -> str:
@@ -430,7 +430,7 @@ def main() -> int:
         help="Optional explicit JSON report output path",
     )
     parser.add_argument("--threads", type=int, default=8, help="threads_per_job for converter workers")
-    parser.add_argument("--nvme-device", default="md0", help="Device name for AdmissionGate")
+    parser.add_argument("--nvme-device", default=get_nvme_device(), help="Device name for AdmissionGate")
     parser.add_argument("--probe-sec", type=float, default=1.0, help="Admission probe interval")
     parser.add_argument("--cpu-threshold", type=float, default=85.0, help="Admission CPU ceiling")
     parser.add_argument("--nvme-threshold", type=float, default=92.0, help="Admission NVMe ceiling")
