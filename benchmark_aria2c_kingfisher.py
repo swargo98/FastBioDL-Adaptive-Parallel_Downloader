@@ -30,7 +30,7 @@ Usage
 -----
   python benchmark_aria2c_kingfisher.py -i accessions.txt \
       --sra-dir   aria2c/sra \
-      --fastq-dir /mnt/raid0/benchmark/aria2c/fastq \
+      --fastq-dir <local_scratch>/benchmark/aria2c/fastq \
       --out-dir   aria2c/output \
       --threads 8
 
@@ -54,6 +54,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 
 from ncbi_lookup import get_ncbi_urls as shared_get_ncbi_urls
+from storage_config import nvme_path
 
 
 # -- URL fetching (shared with fastbiodl_upgrade.py) ---------------------------
@@ -201,6 +202,7 @@ def _accession_group_name(input_path: str) -> str:
 # -- Main ----------------------------------------------------------------------
 
 def main() -> None:
+    default_fastq_dir = nvme_path("benchmark", "aria2c", "fastq")
     parser = argparse.ArgumentParser(
         description=(
             "Benchmark aria2c with iterative pipeline: "
@@ -212,7 +214,7 @@ def main() -> None:
                         help="Text file with one SRA accession per line")
     parser.add_argument("--sra-dir", default="aria2c/sra",
                         help="Destination for aria2c .sra downloads (DISK)")
-    parser.add_argument("--fastq-dir", default="/mnt/raid0/benchmark/aria2c/fastq",
+    parser.add_argument("--fastq-dir", default=default_fastq_dir,
                         help="Destination for fasterq-dump output (NVMe recommended)")
     parser.add_argument("--out-dir", default="aria2c/output",
                         help="Final destination for .fastq.gz files (DISK)")

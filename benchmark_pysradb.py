@@ -19,7 +19,7 @@ Usage
 -----
   python benchmark_pysradb.py -i accessions.txt \
       --sra-dir   pysradb/sra \
-      --fastq-dir /mnt/raid0/benchmark/pysradb/fastq \
+      --fastq-dir <local_scratch>/benchmark/pysradb/fastq \
       --out-dir   pysradb/output \
       --t 8 --threads 8
 """
@@ -41,6 +41,7 @@ from typing import Dict, List, Optional, Tuple
 import requests
 
 from ncbi_lookup import get_ncbi_urls as shared_get_ncbi_urls
+from storage_config import nvme_path
 
 
 def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[Tuple[str, str]]:
@@ -290,6 +291,7 @@ def _accession_group_name(input_path: str) -> str:
 
 
 def main() -> None:
+    default_fastq_dir = nvme_path("benchmark", "pysradb", "fastq")
     parser = argparse.ArgumentParser(
         description=(
             "Benchmark pysradb-like downloader: URL lookup -> requests.get download "
@@ -301,7 +303,7 @@ def main() -> None:
                         help="Text file with one SRA accession per line")
     parser.add_argument("--sra-dir", default="pysradb/sra",
                         help="Destination for downloaded SRA files (DISK)")
-    parser.add_argument("--fastq-dir", default="/mnt/raid0/benchmark/pysradb/fastq",
+    parser.add_argument("--fastq-dir", default=default_fastq_dir,
                         help="Destination for fasterq-dump output (NVMe recommended)")
     parser.add_argument("--out-dir", default="pysradb/output",
                         help="Final destination for .fastq.gz files (DISK)")

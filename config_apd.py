@@ -1,3 +1,6 @@
+from storage_config import get_nvme_base, nvme_path
+
+
 configurations = {
     "ftp": {
         "host": "192.168.1.1",
@@ -6,7 +9,8 @@ configurations = {
         "port": 21,
         "remote_dir": "/"
     },
-    "download_dir": "/mnt/raid0/apd_downloads/",
+    "nvme_base": get_nvme_base(),
+    "download_dir": nvme_path("apd_downloads"),
     "method": "gradient", # options: [gradient, bayes]
     "bayes": {
         "initial_run": 3,

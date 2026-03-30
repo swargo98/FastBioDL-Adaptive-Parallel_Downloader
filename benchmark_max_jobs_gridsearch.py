@@ -15,7 +15,7 @@ Workflow
    - Run SRAConverter so fasterq-dump and pigz overlap concurrently.
    - Record total wall time and phase overlap metrics.
 4. Report the best pair and save a JSON report.
-5. Optionally clean the RAID0 work directory.
+5. Optionally clean the local scratch work directory.
 """
 
 from __future__ import annotations
@@ -31,6 +31,8 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from storage_config import nvme_path
 
 
 def resolve_tool(binary: str, script_dir: Path) -> str:
@@ -419,8 +421,8 @@ def main() -> int:
     parser.add_argument("accession", help="Single accession (e.g., SRR390728)")
     parser.add_argument(
         "--work-root",
-        default="/mnt/raid0/fastbiodl_gridsearch",
-        help="RAID0 working directory used during benchmark",
+        default=nvme_path("fastbiodl_gridsearch"),
+        help="Local scratch working directory used during benchmark",
     )
     parser.add_argument(
         "--json-out",

@@ -12,7 +12,7 @@ import asyncio
 import aiohttp
 from threading import Thread, Lock
 from collections import deque
-from config_fastbiodl import configurations
+from config_fastbiodl import configurations, get_fastbiodl_tmpfs_dir
 from utils import available_space, available_space_bytes
 from search import base_optimizer, gradient_opt_fast, exit_signal
 
@@ -1169,14 +1169,9 @@ if __name__ == '__main__':
     configurations["max_retries"] = args.max_retries
     probing_time = configurations.get("probing_sec", 5)
 
-    # Download directory - use outdir from args
-    # REPLACE this block:
-    download_dir = args.outdir
-
-    # WITH:
-    tmpfs_dir    = f"/mnt/raid0/fastbiodl_{os.getpid()}/"
+    tmpfs_dir = get_fastbiodl_tmpfs_dir()
     download_dir = tmpfs_dir                # downloads land here
-    root_dir     = args.outdir              # final destination (NVMe / lustre / etc.)
+    root_dir = args.outdir                  # final destination (NVMe / lustre / etc.)
     os.makedirs(tmpfs_dir, exist_ok=True)
     
     try:

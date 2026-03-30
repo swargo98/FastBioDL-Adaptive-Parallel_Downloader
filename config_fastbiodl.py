@@ -1,5 +1,30 @@
+import os
+from typing import Optional
+
+from storage_config import fastbiodl_tmpfs_dir, get_nvme_base, nvme_path
+
+
+def get_fastbiodl_nvme_base() -> str:
+    """Return the configured FastBioDL scratch base directory."""
+    return str(configurations.get("nvme_base") or get_nvme_base())
+
+
+def get_fastbiodl_work_dir() -> str:
+    """Return the shared FastBioDL scratch work directory."""
+    return os.path.join(get_fastbiodl_nvme_base(), "fastbiodl")
+
+
+def get_fastbiodl_tmpfs_dir(pid: Optional[int] = None) -> str:
+    """Return the per-process scratch directory used by fastbiodl_upgrade.py."""
+    configured_base = get_fastbiodl_nvme_base()
+    if configured_base == get_nvme_base():
+        return fastbiodl_tmpfs_dir(pid=pid)
+    return os.path.join(configured_base, f"fastbiodl_{os.getpid() if pid is None else pid}")
+
+
 configurations = {
-    "download_dir": "/mnt/raid0/fastbiodl_downloads/",
+    "nvme_base": get_nvme_base(),
+    "download_dir": nvme_path("fastbiodl_downloads"),
     "method": "gradient", # options: [gradient, bayes]
     "bayes": {
         "initial_run": 3,

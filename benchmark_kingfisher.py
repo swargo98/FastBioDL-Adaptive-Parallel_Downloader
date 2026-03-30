@@ -44,7 +44,7 @@ Usage
 -----
   python benchmark_kingfisher.py -i accessions.txt \\
       --sra-dir   kingfisher/sra \\
-      --fastq-dir /mnt/raid0/benchmark/kingfisher/fastq \\
+      --fastq-dir <local_scratch>/benchmark/kingfisher/fastq \\
       --out-dir   kingfisher/output \\
       --threads 8
 
@@ -66,6 +66,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from ncbi_lookup import get_ncbi_urls as shared_get_ncbi_urls
+from storage_config import nvme_path
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -161,6 +162,7 @@ def _accession_group_name(input_path: str) -> str:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    default_fastq_dir = nvme_path("benchmark", "kingfisher", "fastq")
     parser = argparse.ArgumentParser(
         description="Benchmark Kingfisher: get (sra) → convert → pigz",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -171,7 +173,7 @@ def main():
                         default="kingfisher/sra",
                         help="Destination for kingfisher get output (DISK)")
     parser.add_argument("--fastq-dir",
-                        default="/mnt/raid0/benchmark/kingfisher/fastq",
+                        default=default_fastq_dir,
                         help="Destination for converted .fastq files (NVMe recommended)")
     parser.add_argument("--out-dir",
                         default="kingfisher/output",
