@@ -15,21 +15,64 @@ set -euo pipefail
 # ─── Environment ───────────────────────────────────────────────────────────
 module purge
 module load slurm cpu/0.17.3b anaconda3/2021.05
+
+CONDA_BASE="$(conda info --base 2>/dev/null || true)"
+if [[ -z "$CONDA_BASE" || ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
+    echo "[ERROR] Could not locate conda.sh after loading the anaconda module." >&2
+    exit 1
+fi
+source "$CONDA_BASE/etc/profile.d/conda.sh"
 conda activate fastbiodl
 
-REPO_DIR="/expanse/lustre/scratch/$USER/temp_project/FastBioDL-Adaptive-Parallel_Downloader"
+REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 cd "$REPO_DIR"
 
 # Add sra-toolkit to PATH
 export PATH="$REPO_DIR/sratoolkit.3.1.0-ubuntu64/bin:$PATH"
+PYTHON_BIN="$(command -v python3)"
+
+if ! "$PYTHON_BIN" -c "import aiohttp" >/dev/null 2>&1; then
+    echo "[ERROR] aiohttp is not importable from $PYTHON_BIN. Conda env activation failed." >&2
+    exit 1
+fi
 
 # ─── Storage setup ─────────────────────────────────────────────────────────
-# Local NVMe: fast scratch, wiped at job end
-NVME_DIR="/scratch/$USER/temp_project/job_$SLURM_JOB_ID"
-mkdir -p "$NVME_DIR"
+pick_local_scratch() {
+    local candidate
+
+    if [[ -n "${LOCAL_SCRATCH:-}" ]]; then
+        candidate="${LOCAL_SCRATCH}"
+        if mkdir -p "$candidate" 2>/dev/null; then
+            echo "$candidate"
+            return 0
+        fi
+    fi
+
+    if [[ -n "${SLURM_TMPDIR:-}" ]]; then
+        candidate="${SLURM_TMPDIR}"
+        if mkdir -p "$candidate" 2>/dev/null; then
+            echo "$candidate"
+            return 0
+        fi
+    fi
+
+    for candidate in "/scratch/$USER/job_$SLURM_JOB_ID" "/tmp/$USER/job_$SLURM_JOB_ID"; do
+        if mkdir -p "$candidate" 2>/dev/null; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+NVME_DIR="$(pick_local_scratch)" || {
+    echo "[ERROR] Unable to create a writable local scratch directory." >&2
+    exit 1
+}
 
 # Final output: Lustre, persists after job
-RESULTS_ROOT="/expanse/lustre/scratch/$USER/temp_project/benchmark_results"
+RESULTS_ROOT="${RESULTS_ROOT:-$(dirname "$REPO_DIR")/benchmark_results}"
 RUN_OUT="$RESULTS_ROOT/run_all_benchmarks_${SLURM_JOB_ID}"
 mkdir -p "$RUN_OUT"
 mkdir -p logs
@@ -44,6 +87,7 @@ export SLURM_JOB_ID="$SLURM_JOB_ID"
 
 echo "=== Expanse benchmark batch job starting ==="
 echo "Repository: $REPO_DIR"
+echo "Python: $PYTHON_BIN"
 echo "Local scratch: $NVME_DIR"
 echo "Results root: $RUN_OUT"
 
