@@ -64,6 +64,7 @@ from collections import deque
 from typing import Optional
 
 from config_fastbiodl import get_fastbiodl_work_dir
+from storage_config import get_nvme_device
 
 
 #############################
@@ -689,7 +690,7 @@ class SRAConverter:
         processing_queue: mp.Queue,
         move_queue: mp.Queue,
         work_dir: str = get_fastbiodl_work_dir(),
-        nvme_device: str = "nvme0n1",
+        nvme_device: str = get_nvme_device(),
         threads_per_job: int = 8,
         cpu_threshold: float = 85.0,
         nvme_threshold: float = 92.0,
