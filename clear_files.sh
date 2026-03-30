@@ -4,7 +4,7 @@
 set -euo pipefail
 
 WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NVME_MOUNT="/mnt/raid0"
+NVME_MOUNT="${NVME_MOUNT:-${LOCAL_SCRATCH:-/scratch/${USER:-user}/job_${SLURM_JOB_ID:-local}}}"
 LOG_FILE="$WORKDIR/clear_files_deletion.log"
 CONTEXT="${CLEAR_CONTEXT:-manual}"
 
