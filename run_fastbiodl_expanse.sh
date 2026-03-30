@@ -15,7 +15,7 @@ module purge
 module load slurm cpu/0.17.3b anaconda3/2021.05
 conda activate fastbiodl
 
-REPO_DIR="/expanse/lustre/scratch/$USER/FastBioDL-Adaptive-Parallel_Downloader"
+REPO_DIR="/expanse/lustre/scratch/$USER/temp_project/FastBioDL-Adaptive-Parallel_Downloader"
 cd "$REPO_DIR"
 
 # Add sra-toolkit to PATH
@@ -23,11 +23,11 @@ export PATH="$REPO_DIR/sratoolkit.3.1.0-ubuntu64/bin:$PATH"
 
 # ─── Storage setup ─────────────────────────────────────────────────────────
 # Local NVMe: fast scratch, wiped at job end
-NVME_DIR="/scratch/$USER/job_$SLURM_JOB_ID"
+NVME_DIR="/scratch/$USER/temp_project/job_$SLURM_JOB_ID"
 mkdir -p "$NVME_DIR"
 
 # Final output: Lustre, persists after job
-LUSTRE_OUT="/expanse/lustre/scratch/$USER/benchmark_results"
+LUSTRE_OUT="/expanse/lustre/scratch/$USER/temp_project/benchmark_results"
 mkdir -p "$LUSTRE_OUT"
 mkdir -p logs/fastbiodl logs/kingfisher
 
