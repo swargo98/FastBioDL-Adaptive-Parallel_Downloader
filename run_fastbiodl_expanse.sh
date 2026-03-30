@@ -13,18 +13,8 @@
 set -uo pipefail                     # u and o but NOT e — don't abort on first error
 
 # ── Conda ──────────────────────────────────────────────────────────────────
-module purge
-module load slurm cpu/0.17.3b anaconda3/2021.05
-
-CONDA_BASE="$(conda info --base 2>/dev/null || true)"
-[[ -f "$CONDA_BASE/etc/profile.d/conda.sh" ]] || { echo "[ERROR] conda.sh not found"; exit 1; }
-source "$CONDA_BASE/etc/profile.d/conda.sh"
-conda activate fastbiodl
-
-REPO_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
-cd "$REPO_DIR"
-export PATH="$REPO_DIR/sratoolkit.3.1.0-ubuntu64/bin:$PATH"
-PYTHON_BIN="$(command -v python)"
+PYTHON_BIN="/home/rswargo/.conda/envs/fastbiodl/bin/python"
+export PATH="/home/rswargo/.conda/envs/fastbiodl/bin:$PATH"
 
 "$PYTHON_BIN" -c "import aiohttp" || { echo "[ERROR] aiohttp missing"; exit 1; }
 
