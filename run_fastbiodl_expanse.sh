@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=fastbiodl_benchmark
-#SBATCH --account=YOUR_PROJECT_ID         # e.g. abc123 or TG-ABC123456
+#SBATCH --account=umr115         # e.g. abc123 or TG-ABC123456
 #SBATCH --partition=compute               # exclusive node, 128 cores, 1 TB NVMe
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
