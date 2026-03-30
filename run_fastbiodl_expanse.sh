@@ -18,6 +18,8 @@ export PATH="/home/rswargo/.conda/envs/fastbiodl/bin:$PATH"
 
 "$PYTHON_BIN" -c "import aiohttp" || { echo "[ERROR] aiohttp missing"; exit 1; }
 
+REPO_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
+
 # ── Storage ────────────────────────────────────────────────────────────────
 NVME_DIR="/scratch/$USER/job_$SLURM_JOB_ID"
 mkdir -p "$NVME_DIR" || NVME_DIR="/tmp/$USER/job_$SLURM_JOB_ID" && mkdir -p "$NVME_DIR"
