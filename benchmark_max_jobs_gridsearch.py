@@ -57,6 +57,27 @@ def prepare_tool_path(script_dir: Path) -> None:
         os.environ["PATH"] = f"{bundled_bin}:{os.environ.get('PATH', '')}"
 
 
+def default_json_out(script_dir: Path, accession: str) -> Path:
+    """
+    Choose a JSON report location that works both locally and under Slurm.
+
+    Preference order:
+      1. GRIDSEARCH_RESULTS_DIR or RESULTS_ROOT if explicitly set
+      2. SLURM_SUBMIT_DIR/benchmark_results on cluster jobs
+      3. repo-local benchmark/ directory for local runs
+    """
+    for env_name in ("GRIDSEARCH_RESULTS_DIR", "RESULTS_ROOT"):
+        configured = os.environ.get(env_name, "").strip()
+        if configured:
+            return Path(configured).expanduser() / f"benchmark_max_jobs_{accession}.json"
+
+    submit_dir = os.environ.get("SLURM_SUBMIT_DIR", "").strip()
+    if submit_dir:
+        return Path(submit_dir).expanduser() / "benchmark_results" / f"benchmark_max_jobs_{accession}.json"
+
+    return script_dir / "benchmark" / f"benchmark_max_jobs_{accession}.json"
+
+
 def download_with_fastbiodl(
     accession: str,
     sra_dir: Path,
@@ -416,7 +437,8 @@ def print_grid_summary(results: List[Dict[str, object]]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Grid search benchmark for max_conversion_jobs and max_pigz_jobs (1..3)"
+        description="Grid search benchmark for max_conversion_jobs and max_pigz_jobs (1..3)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("accession", help="Single accession (e.g., SRR390728)")
     parser.add_argument(
@@ -469,11 +491,16 @@ def main() -> int:
     download_dir = work_root / "download"
     warmup_dir = work_root / "warmup"
     runs_dir = work_root / "runs"
+    out_json = Path(args.json_out).expanduser().resolve() if args.json_out else default_json_out(script_dir, accession)
 
     clean_dir(work_root)
     download_dir.mkdir(parents=True, exist_ok=True)
     warmup_dir.mkdir(parents=True, exist_ok=True)
     runs_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Work root: {work_root}")
+    print(f"JSON report target: {out_json}")
+    print(f"Admission NVMe device: {args.nvme_device}")
 
     print(f"[1/6] Downloading accession with FastBioDL: {accession}")
     try:
@@ -633,9 +660,6 @@ def main() -> int:
         },
     }
 
-    out_json = Path(args.json_out).resolve() if args.json_out else (
-        Path(__file__).resolve().parent / "benchmark" / f"benchmark_max_jobs_{accession}.json"
-    )
     out_json.parent.mkdir(parents=True, exist_ok=True)
     with out_json.open("w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
