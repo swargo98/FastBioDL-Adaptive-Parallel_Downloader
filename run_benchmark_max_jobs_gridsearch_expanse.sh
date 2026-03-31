@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=max_jobs_gridsearch
+#SBATCH --job-name=max_jobs_bench
 #SBATCH --account=umr115
 #SBATCH --partition=compute
 #SBATCH --nodes=1
@@ -40,7 +40,8 @@ export GRIDSEARCH_RESULTS_DIR="$LUSTRE_OUT"
 
 WORK_ROOT="$NVME_DIR/fastbiodl_gridsearch_${ACCESSION}"
 JSON_OUT="$LUSTRE_OUT/benchmark_max_jobs_${ACCESSION}.json"
-THREADS="${THREADS:-${SLURM_CPUS_PER_TASK:-16}}"
+THREADS="${THREADS:-8}"
+AUTOTUNE_MAX_JOBS_CAP="${AUTOTUNE_MAX_JOBS_CAP:-8}"
 
 echo "Repo:      $REPO_DIR"
 echo "Python:    $PYTHON_BIN"
@@ -48,11 +49,15 @@ echo "Accession: $ACCESSION"
 echo "NVMe:      $NVME_DIR"
 echo "Work root: $WORK_ROOT"
 echo "Results:   $LUSTRE_OUT"
+echo "Threads:   $THREADS"
+echo "Autotune:  max_jobs_cap=$AUTOTUNE_MAX_JOBS_CAP"
+echo "Modes:     sequential + autotune + grid"
 which aria2c fasterq-dump pigz
 
 "$PYTHON_BIN" benchmark_max_jobs_gridsearch.py \
     "$ACCESSION" \
     --threads "$THREADS" \
+    --autotune-max-jobs-cap "$AUTOTUNE_MAX_JOBS_CAP" \
     --work-root "$WORK_ROOT" \
     --json-out "$JSON_OUT" \
     --cleanup-work-root
@@ -62,6 +67,6 @@ cp "$REPO_DIR/run_benchmark_max_jobs_gridsearch_expanse.sh" "$LUSTRE_OUT/" 2>/de
 cp "$REPO_DIR/benchmark_max_jobs_gridsearch.py" "$LUSTRE_OUT/" 2>/dev/null || true
 cp "slurm_${SLURM_JOB_ID}.out" "slurm_${SLURM_JOB_ID}.err" "$LUSTRE_OUT/" 2>/dev/null || true
 
-echo "Grid search exit code: $status"
+echo "Benchmark exit code: $status"
 echo "Results in $LUSTRE_OUT"
 exit "$status"

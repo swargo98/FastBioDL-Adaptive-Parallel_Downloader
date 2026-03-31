@@ -2,20 +2,22 @@
 """
 benchmark_max_jobs_gridsearch.py
 
-Grid-search benchmark for FastBioDL conversion concurrency knobs:
-- max_conversion_jobs in {1, 2, 3}
-- max_pigz_jobs in {1, 2, 3}
+Benchmark for FastBioDL conversion concurrency knobs:
+- strict sequential baseline
+- warm-up-driven autotune result
+- grid search over max_conversion_jobs in {1, 2, 3} and max_pigz_jobs in {1, 2, 3}
 
 Workflow
 --------
 1. Download one accession using FastBioDL segmented downloader.
 2. Run a single-file warm-up conversion (converter + pigz pipeline).
-3. For each (max_conversion_jobs, max_pigz_jobs) pair:
+3. Run one measured autotune pass using warm-up spans to pick a pair.
+4. For each (max_conversion_jobs, max_pigz_jobs) pair:
    - Materialize 3 copies of the downloaded .sra file.
    - Run SRAConverter so fasterq-dump and pigz overlap concurrently.
    - Record total wall time and phase overlap metrics.
-4. Report the best pair and save a JSON report.
-5. Optionally clean the local scratch work directory.
+5. Report the best measured configurations and save a JSON report.
+6. Optionally clean the local scratch work directory.
 """
 
 from __future__ import annotations
@@ -424,6 +426,70 @@ def run_converter_once(
     }
 
 
+def autotune_jobs(
+    warmup_result: Dict[str, object],
+    threads_per_job: int,
+    max_jobs_cap: int = 4,
+) -> Tuple[int, int]:
+    """
+    Derive (max_conversion_jobs, max_pigz_jobs) from warm-up timing and CPU count.
+    """
+    cpu_count = os.cpu_count() or 1
+    max_jobs_cap = max(1, int(max_jobs_cap))
+    threads_per_job = max(1, int(threads_per_job))
+
+    fasterq_t = float(warmup_result.get("fasterq_span_s", 0.0))
+    pigz_t = float(warmup_result.get("pigz_span_s", 0.0))
+
+    if fasterq_t < 0.5 or pigz_t < 0.5:
+        ratio = 1.0
+    else:
+        ratio = fasterq_t / pigz_t
+        ratio = max(0.2, min(ratio, 5.0))
+
+    conv_jobs = max(1, min(cpu_count // threads_per_job, max_jobs_cap))
+    pigz_jobs = max(1, min(round(conv_jobs / ratio), max_jobs_cap))
+
+    return conv_jobs, pigz_jobs
+
+
+def build_autotune_selection(
+    warmup_result: Dict[str, object],
+    threads_per_job: int,
+    max_jobs_cap: int,
+) -> Dict[str, object]:
+    threads_per_job = max(1, int(threads_per_job))
+    max_jobs_cap = max(1, int(max_jobs_cap))
+    cpu_count = os.cpu_count() or 1
+    fasterq_t = float(warmup_result.get("fasterq_span_s", 0.0))
+    pigz_t = float(warmup_result.get("pigz_span_s", 0.0))
+
+    used_fallback_ratio = fasterq_t < 0.5 or pigz_t < 0.5
+    if used_fallback_ratio:
+        ratio = 1.0
+    else:
+        ratio = fasterq_t / pigz_t
+        ratio = max(0.2, min(ratio, 5.0))
+
+    max_conversion_jobs, max_pigz_jobs = autotune_jobs(
+        warmup_result=warmup_result,
+        threads_per_job=threads_per_job,
+        max_jobs_cap=max_jobs_cap,
+    )
+
+    return {
+        "cpu_count": int(cpu_count),
+        "threads_per_job": int(max(1, threads_per_job)),
+        "max_jobs_cap": int(max(1, max_jobs_cap)),
+        "warmup_fasterq_span_s": round(fasterq_t, 3),
+        "warmup_pigz_span_s": round(pigz_t, 3),
+        "ratio": round(ratio, 3),
+        "used_fallback_ratio": used_fallback_ratio,
+        "max_conversion_jobs": int(max_conversion_jobs),
+        "max_pigz_jobs": int(max_pigz_jobs),
+    }
+
+
 def print_grid_summary(results: List[Dict[str, object]]) -> None:
     print("\nGrid results (lower total_s is better):")
     print("conv_jobs pigz_jobs total_s converted failed overlap_s")
@@ -437,7 +503,7 @@ def print_grid_summary(results: List[Dict[str, object]]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Grid search benchmark for max_conversion_jobs and max_pigz_jobs (1..3)",
+        description="Benchmark sequential baseline, autotune result, and grid search for max_conversion_jobs and max_pigz_jobs",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("accession", help="Single accession (e.g., SRR390728)")
@@ -464,6 +530,12 @@ def main() -> int:
     parser.add_argument("--download-segment-size-mb", type=int, default=512, help="FastBioDL segment size MB")
     parser.add_argument("--download-max-segments", type=int, default=8, help="FastBioDL max segments")
     parser.add_argument("--download-max-retries", type=int, default=3, help="FastBioDL max retries")
+    parser.add_argument(
+        "--autotune-max-jobs-cap",
+        type=int,
+        default=8,
+        help="Upper bound for autotuned max_conversion_jobs and max_pigz_jobs",
+    )
     parser.add_argument(
         "--cleanup-work-root",
         action="store_true",
@@ -502,7 +574,7 @@ def main() -> int:
     print(f"JSON report target: {out_json}")
     print(f"Admission NVMe device: {args.nvme_device}")
 
-    print(f"[1/6] Downloading accession with FastBioDL: {accession}")
+    print(f"[1/7] Downloading accession with FastBioDL: {accession}")
     try:
         downloaded_sra, dl_s, source_url = download_with_fastbiodl(
             accession=accession,
@@ -528,7 +600,7 @@ def main() -> int:
         f"Source URL: {source_url}"
     )
 
-    print("[2/6] Warm-up conversion (single input; converter + pigz overlap path)")
+    print("[2/7] Warm-up conversion (single input; converter + pigz overlap path)")
     warmup_input_dir = warmup_dir / "input"
     warmup_inputs = prepare_three_inputs(downloaded_sra, warmup_input_dir, accession)[:1]
     warmup_result = run_converter_once(
@@ -551,7 +623,21 @@ def main() -> int:
         print(f"Warm-up conversion failed: {warmup_result}", file=sys.stderr)
         return 1
 
-    print("[3/6] Running strict sequential baseline (no overlap; analogous to (1,1) without concurrency overlap)")
+    autotune_selection = build_autotune_selection(
+        warmup_result=warmup_result,
+        threads_per_job=args.threads,
+        max_jobs_cap=args.autotune_max_jobs_cap,
+    )
+    print(
+        "[warmup] Autotune selected "
+        f"max_conversion_jobs={autotune_selection['max_conversion_jobs']}, "
+        f"max_pigz_jobs={autotune_selection['max_pigz_jobs']} "
+        f"(ratio={float(autotune_selection['ratio']):.3f}, "
+        f"cpu_count={autotune_selection['cpu_count']}, "
+        f"threads_per_job={autotune_selection['threads_per_job']})"
+    )
+
+    print("[3/7] Running strict sequential baseline (no overlap; analogous to (1,1) without concurrency overlap)")
     seq_root = work_root / "sequential_baseline"
     seq_input_dir = seq_root / "input"
     seq_work_dir = seq_root / "work"
@@ -568,7 +654,51 @@ def main() -> int:
         print(f"Sequential baseline had failures: {sequential_result}", file=sys.stderr)
         return 1
 
-    print("[4/6] Preparing 3-copy datasets and running 3x3 grid search")
+    print("[4/7] Running autotuned benchmark on 3-copy dataset")
+    autotune_root = work_root / "autotune"
+    autotune_input_dir = autotune_root / "input"
+    autotune_work_dir = autotune_root / "work"
+    autotune_inputs = prepare_three_inputs(downloaded_sra, autotune_input_dir, accession)
+    try:
+        autotune_run_result = run_converter_once(
+            inputs=autotune_inputs,
+            work_dir=autotune_work_dir,
+            threads=args.threads,
+            max_conversion_jobs=int(autotune_selection["max_conversion_jobs"]),
+            max_pigz_jobs=int(autotune_selection["max_pigz_jobs"]),
+            probe_sec=args.probe_sec,
+            cpu_threshold=args.cpu_threshold,
+            nvme_threshold=args.nvme_threshold,
+            required_factor=args.required_factor,
+            reserve_factor=args.reserve_factor,
+            pigz_reserve_factor=args.pigz_reserve_factor,
+            disk_safety_margin_gb=args.disk_safety_margin_gb,
+            nvme_device=args.nvme_device,
+            stop_timeout_s=args.stop_timeout,
+        )
+        autotune_result: Dict[str, object] = {
+            **autotune_run_result,
+            "status": "ok",
+            "max_conversion_jobs": int(autotune_selection["max_conversion_jobs"]),
+            "max_pigz_jobs": int(autotune_selection["max_pigz_jobs"]),
+        }
+    except Exception as exc:
+        autotune_result = {
+            "status": "failed",
+            "error": str(exc),
+            "max_conversion_jobs": int(autotune_selection["max_conversion_jobs"]),
+            "max_pigz_jobs": int(autotune_selection["max_pigz_jobs"]),
+            "total_s": float("inf"),
+            "converted_count": 0,
+            "failed_count": 3,
+            "moved_outputs_count": 0,
+            "moved_outputs": [],
+            "fasterq_span_s": 0.0,
+            "pigz_span_s": 0.0,
+            "overlap_s": 0.0,
+        }
+
+    print("[5/7] Preparing 3-copy datasets and running 3x3 grid search")
     results: List[Dict[str, object]] = []
     for max_conv in (1, 2, 3):
         for max_pigz in (1, 2, 3):
@@ -624,20 +754,45 @@ def main() -> int:
         print("No successful grid-search runs. See JSON report for details.", file=sys.stderr)
         return 1
 
-    best = min(successful, key=lambda r: float(r["total_s"]))
+    best_grid = min(successful, key=lambda r: float(r["total_s"]))
+    best_overall = best_grid
+    if autotune_result.get("status") == "ok" and int(autotune_result.get("failed_count", 1)) == 0:
+        best_overall = min(
+            [best_grid, autotune_result],
+            key=lambda r: float(r["total_s"]),
+        )
 
-    print("[5/6] Result summary")
+    print("[6/7] Result summary")
     print(
         "Sequential baseline total: "
         f"{float(sequential_result['total_s']):.3f}s "
         f"(converted={sequential_result['converted_count']}, failed={sequential_result['failed_count']})"
     )
+    if autotune_result.get("status") == "ok":
+        print(
+            "Autotune total: "
+            f"{float(autotune_result['total_s']):.3f}s "
+            f"for (conv={autotune_result['max_conversion_jobs']}, pigz={autotune_result['max_pigz_jobs']}) "
+            f"(converted={autotune_result['converted_count']}, failed={autotune_result['failed_count']})"
+        )
+    else:
+        print(
+            "Autotune run failed "
+            f"for (conv={autotune_result['max_conversion_jobs']}, pigz={autotune_result['max_pigz_jobs']}): "
+            f"{autotune_result.get('error', 'unknown error')}"
+        )
     print_grid_summary(successful)
     print(
-        "\nBest pair: "
-        f"max_conversion_jobs={best['max_conversion_jobs']}, "
-        f"max_pigz_jobs={best['max_pigz_jobs']} "
-        f"(total={float(best['total_s']):.3f}s)"
+        "\nBest grid pair: "
+        f"max_conversion_jobs={best_grid['max_conversion_jobs']}, "
+        f"max_pigz_jobs={best_grid['max_pigz_jobs']} "
+        f"(total={float(best_grid['total_s']):.3f}s)"
+    )
+    print(
+        "Best measured result overall: "
+        f"max_conversion_jobs={best_overall['max_conversion_jobs']}, "
+        f"max_pigz_jobs={best_overall['max_pigz_jobs']} "
+        f"(total={float(best_overall['total_s']):.3f}s)"
     )
 
     report = {
@@ -651,11 +806,18 @@ def main() -> int:
         },
         "warmup": warmup_result,
         "sequential_baseline": sequential_result,
+        "autotune": {
+            "selection": autotune_selection,
+            "result": autotune_result,
+        },
         "grid": results,
-        "best": best,
+        "best": best_grid,
+        "best_grid": best_grid,
+        "best_overall": best_overall,
         "search_space": {
             "max_conversion_jobs": [1, 2, 3],
             "max_pigz_jobs": [1, 2, 3],
+            "autotune_max_jobs_cap": int(max(1, args.autotune_max_jobs_cap)),
             "copies_per_run": 3,
         },
     }
@@ -667,10 +829,10 @@ def main() -> int:
     print(f"JSON report: {out_json}")
 
     if args.cleanup_work_root:
-        print(f"[6/6] Cleaning RAID0 work directory: {work_root}")
+        print(f"[7/7] Cleaning RAID0 work directory: {work_root}")
         shutil.rmtree(work_root, ignore_errors=True)
     else:
-        print(f"[6/6] Keeping RAID0 work directory: {work_root}")
+        print(f"[7/7] Keeping RAID0 work directory: {work_root}")
 
     return 0
 
