@@ -26,6 +26,8 @@ fi
 source "$CONDA_BASE/etc/profile.d/conda.sh"
 conda activate fastbiodl
 
+export PATH="${CONDA_PREFIX}/bin:$PATH"
+
 REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 cd "$REPO_DIR"
 
