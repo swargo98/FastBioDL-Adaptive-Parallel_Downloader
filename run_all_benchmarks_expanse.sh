@@ -4,7 +4,7 @@
 #SBATCH --partition=compute               # exclusive node, 128 cores, 1 TB NVMe
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16                # covers the default thread counts used by the benchmarks
+#SBATCH --cpus-per-task=64                # covers the default thread counts used by the benchmarks
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00                  # increase if needed for repeated multi-dataset runs
 #SBATCH --output=slurm_%j.out
