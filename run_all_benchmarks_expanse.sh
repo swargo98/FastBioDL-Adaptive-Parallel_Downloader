@@ -31,7 +31,8 @@ cd "$REPO_DIR"
 
 # Add sra-toolkit to PATH
 export PATH="$REPO_DIR/sratoolkit.3.1.0-ubuntu64/bin:$PATH"
-PYTHON_BIN="$(command -v python3)"
+# PYTHON_BIN="$(command -v python3)"
+PYTHON_BIN="${CONDA_PREFIX}/bin/python3"
 
 if ! "$PYTHON_BIN" -c "import aiohttp" >/dev/null 2>&1; then
     echo "[ERROR] aiohttp is not importable from $PYTHON_BIN. Conda env activation failed." >&2
