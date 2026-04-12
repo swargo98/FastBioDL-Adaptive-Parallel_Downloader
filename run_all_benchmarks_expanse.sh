@@ -12,6 +12,8 @@
 
 set -euo pipefail
 
+export PS1="${PS1:-}"
+
 # ─── Environment ───────────────────────────────────────────────────────────
 module purge
 module load slurm cpu/0.17.3b anaconda3/2021.05
