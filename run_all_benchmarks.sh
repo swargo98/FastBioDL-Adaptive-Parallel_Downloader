@@ -30,8 +30,8 @@ scripts=(
   "fastbiodl_upgrade.py"
   "benchmark_aria2c_kingfisher.py"
   # "benchmark_aria2c.py"
-  # "benchmark_pysradb.py"
-  # "benchmark_sratools.py"
+  "benchmark_pysradb.py"
+  "benchmark_sratools.py"
 )
 
 for accession_list in "${accession_lists[@]}"; do
