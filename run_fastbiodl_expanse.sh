@@ -12,6 +12,8 @@
 
 set -uo pipefail                     # u and o but NOT e — don't abort on first error
 
+export PS1="${PS1:-}"
+
 # ── Conda ──────────────────────────────────────────────────────────────────
 PYTHON_BIN="/home/rswargo/.conda/envs/fastbiodl/bin/python"
 export PATH="/home/rswargo/.conda/envs/fastbiodl/bin:$PATH"
