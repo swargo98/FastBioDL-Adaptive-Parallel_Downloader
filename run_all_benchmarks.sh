@@ -20,7 +20,7 @@ to_human() {
 total_deleted_bytes=0
 
 accession_lists=(
-  "accessions_large_PRJNA251383.txt"
+  # "accessions_large_PRJNA251383.txt"
   "accessions_medium_PRJNA353374.txt"
   "accessions_small_PRJNA916347.txt"
   # "accessions_large_PRJNA200694.txt"
