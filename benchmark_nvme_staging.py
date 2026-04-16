@@ -359,7 +359,7 @@ def main() -> int:
     # Directories
     work_nvme   = nvme_root / f"bench_staging_{accession}"
     work_lustre = lustre_root / f"bench_staging_{accession}"
-    sra_dir     = work_nvme / "sra"
+    sra_dir     = work_lustre / "sra"
     sra_dir.mkdir(parents=True, exist_ok=True)
     work_lustre.mkdir(parents=True, exist_ok=True)
 
