@@ -34,8 +34,10 @@ if [[ -z "$CONDA_BASE" || ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
     echo "[ERROR] Could not locate conda.sh after loading the anaconda module." >&2
     exit 1
 fi
+set +u
 source "$CONDA_BASE/etc/profile.d/conda.sh"
 conda activate fastbiodl
+set -u
 
 REPO_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 cd "$REPO_DIR"
