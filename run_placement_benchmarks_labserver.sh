@@ -54,8 +54,8 @@ detect_threads() {
     echo "$n"
 }
 
-FAST_DIR="${FAST_DIR:-/mnt/storage/benchmark_fast_storage}"
-SLOW_DIR="${SLOW_DIR:-/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage}"
+FAST_DIR="${FAST_DIR:-/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage}"
+SLOW_DIR="${SLOW_DIR:-/mnt/storage/benchmark_fast_storage}"
 DEST_DIR="${DEST_DIR:-$SLOW_DIR/results}"
 THREADS="${THREADS:-$(detect_threads)}"
 REPS="${REPS:-3}"
