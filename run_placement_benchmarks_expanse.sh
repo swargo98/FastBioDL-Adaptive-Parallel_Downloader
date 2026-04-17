@@ -197,6 +197,7 @@ for ACC in "$ACC_SMALL" "$ACC_MEDIUM" "$ACC_LARGE"; do
         --methods "$METHODS" \
         --threads "$THREADS" \
         --reps "$REPS" \
+        --skip-eviction \
         --json-out "$RUN_OUT/placement_mover_nvme2lustre_${ACC}.json" \
         --cleanup \
     |& tee "$RUN_OUT/placement_mover_nvme2lustre_${ACC}.log" \
@@ -213,6 +214,7 @@ for ACC in "$ACC_SMALL" "$ACC_MEDIUM" "$ACC_LARGE"; do
         --methods "$METHODS" \
         --threads "$THREADS" \
         --reps "$REPS" \
+        --skip-eviction \
         --json-out "$RUN_OUT/placement_mover_lustre2nvme_${ACC}.json" \
         --cleanup \
     |& tee "$RUN_OUT/placement_mover_lustre2nvme_${ACC}.log" \
