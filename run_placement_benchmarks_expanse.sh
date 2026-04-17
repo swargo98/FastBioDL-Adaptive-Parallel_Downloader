@@ -173,24 +173,24 @@ for ACC in "$ACC_SMALL" "$ACC_MEDIUM" "$ACC_LARGE"; do
     echo "  Accession: $ACC"
     echo "============================================================"
 
-    echo "[placement_conversion] Starting for $ACC ..."
-    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_conversion.py" \
-        "$ACC" \
-        --fast-dir "$FAST_DIR" \
-        --slow-dir "$SLOW_DIR" \
-        --dest-dir "$DEST_DIR" \
-        --cells "$CELLS" \
-        --threads "$THREADS" \
-        --reps "$REPS" \
-        --json-out "$RUN_OUT/placement_conversion_${ACC}.json" \
-        --cleanup \
-    |& tee "$RUN_OUT/placement_conversion_${ACC}.log" \
-    || { echo "[WARN] placement_conversion failed for $ACC (rc=$?)"; overall_status=1; }
+    # echo "[placement_conversion] Starting for $ACC ..."
+    # "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_conversion.py" \
+    #     "$ACC" \
+    #     --fast-dir "$FAST_DIR" \
+    #     --slow-dir "$SLOW_DIR" \
+    #     --dest-dir "$DEST_DIR" \
+    #     --cells "$CELLS" \
+    #     --threads "$THREADS" \
+    #     --reps "$REPS" \
+    #     --json-out "$RUN_OUT/placement_conversion_${ACC}.json" \
+    #     --cleanup \
+    # |& tee "$RUN_OUT/placement_conversion_${ACC}.log" \
+    # || { echo "[WARN] placement_conversion failed for $ACC (rc=$?)"; overall_status=1; }
 
-    echo ""
+    # echo ""
 
     echo "[placement_mover: nvme -> lustre] Starting for $ACC ..."
-    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover_fixed.py" \
+    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover_expanse_fixed.py" \
         "$ACC" \
         --src-dir "$FAST_DIR" \
         --dst-dir "$SLOW_DIR" \
@@ -205,7 +205,7 @@ for ACC in "$ACC_SMALL" "$ACC_MEDIUM" "$ACC_LARGE"; do
     echo ""
 
     echo "[placement_mover: lustre -> nvme] Starting for $ACC ..."
-    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover_fixed.py" \
+    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover_expanse_fixed.py" \
         "$ACC" \
         --src-dir "$SLOW_DIR" \
         --dst-dir "$FAST_DIR" \
@@ -223,7 +223,7 @@ done
 
 # ── Copy source files for reproducibility ────────────────────────────────
 cp "$REPO_DIR/benchmark_placement_conversion.py" "$RUN_OUT/" 2>/dev/null || true
-cp "$REPO_DIR/benchmark_placement_mover_fixed.py"      "$RUN_OUT/" 2>/dev/null || true
+cp "$REPO_DIR/benchmark_placement_mover_expanse_fixed.py"      "$RUN_OUT/" 2>/dev/null || true
 cp "$0"                                                  "$RUN_OUT/" 2>/dev/null || true
 if [[ -f "slurm_${SLURM_JOB_ID}.out" ]]; then
     cp "slurm_${SLURM_JOB_ID}.out" "$RUN_OUT/" 2>/dev/null || true
