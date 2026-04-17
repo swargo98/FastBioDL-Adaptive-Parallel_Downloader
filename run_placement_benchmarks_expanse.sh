@@ -112,17 +112,17 @@ pick_local_scratch() {
     return 1
 }
 
-FAST_DIR="${FAST_DIR:-}"
-if [[ -z "$FAST_DIR" ]]; then
-    FAST_DIR="$(pick_local_scratch)" || {
+FAST_DIR="${FAST_DIR:-$LUSTRE_ROOT/scratch/fast}"
+LUSTRE_ROOT="${LUSTRE_ROOT:-/expanse/lustre/scratch/$USER/temp_project}"
+SLOW_DIR="${SLOW_DIR:-}"
+if [[ -z "$SLOW_DIR" ]]; then
+    SLOW_DIR="$(pick_local_scratch)" || {
         echo "[ERROR] Cannot create local scratch directory." >&2
         exit 1
     }
 fi
 
-LUSTRE_ROOT="${LUSTRE_ROOT:-/expanse/lustre/scratch/$USER/temp_project}"
-SLOW_DIR="${SLOW_DIR:-$LUSTRE_ROOT/scratch}"
-DEST_DIR="${DEST_DIR:-$LUSTRE_ROOT/results}"
+DEST_DIR="${DEST_DIR:-$SLOW_DIR/results}"
 RESULTS_ROOT="${RESULTS_ROOT:-$LUSTRE_ROOT/benchmark_results}"
 THREADS="${THREADS:-$(detect_threads)}"
 REPS="${REPS:-3}"
@@ -190,7 +190,7 @@ for ACC in "$ACC_SMALL" "$ACC_MEDIUM" "$ACC_LARGE"; do
     echo ""
 
     echo "[placement_mover: nvme -> lustre] Starting for $ACC ..."
-    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover.py" \
+    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover_fixed.py" \
         "$ACC" \
         --src-dir "$FAST_DIR" \
         --dst-dir "$SLOW_DIR" \
@@ -205,7 +205,7 @@ for ACC in "$ACC_SMALL" "$ACC_MEDIUM" "$ACC_LARGE"; do
     echo ""
 
     echo "[placement_mover: lustre -> nvme] Starting for $ACC ..."
-    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover.py" \
+    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover_fixed.py" \
         "$ACC" \
         --src-dir "$SLOW_DIR" \
         --dst-dir "$FAST_DIR" \
@@ -223,7 +223,7 @@ done
 
 # ── Copy source files for reproducibility ────────────────────────────────
 cp "$REPO_DIR/benchmark_placement_conversion.py" "$RUN_OUT/" 2>/dev/null || true
-cp "$REPO_DIR/benchmark_placement_mover.py"      "$RUN_OUT/" 2>/dev/null || true
+cp "$REPO_DIR/benchmark_placement_mover_fixed.py"      "$RUN_OUT/" 2>/dev/null || true
 cp "$0"                                                  "$RUN_OUT/" 2>/dev/null || true
 if [[ -f "slurm_${SLURM_JOB_ID}.out" ]]; then
     cp "slurm_${SLURM_JOB_ID}.out" "$RUN_OUT/" 2>/dev/null || true
