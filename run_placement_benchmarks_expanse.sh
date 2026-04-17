@@ -190,7 +190,7 @@ for ACC in "$ACC_SMALL" "$ACC_MEDIUM" "$ACC_LARGE"; do
     # echo ""
 
     echo "[placement_mover: nvme -> lustre] Starting for $ACC ..."
-    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover_expanse_fixed.py" \
+    "$PYTHON_BIN" -u  "$REPO_DIR/benchmark_placement_mover_expanse_fixed.py" \
         "$ACC" \
         --src-dir "$FAST_DIR" \
         --dst-dir "$SLOW_DIR" \
@@ -205,7 +205,7 @@ for ACC in "$ACC_SMALL" "$ACC_MEDIUM" "$ACC_LARGE"; do
     echo ""
 
     echo "[placement_mover: lustre -> nvme] Starting for $ACC ..."
-    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_mover_expanse_fixed.py" \
+    "$PYTHON_BIN" -u "$REPO_DIR/benchmark_placement_mover_expanse_fixed.py" \
         "$ACC" \
         --src-dir "$SLOW_DIR" \
         --dst-dir "$FAST_DIR" \
