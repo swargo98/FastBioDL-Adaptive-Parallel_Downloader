@@ -112,8 +112,8 @@ pick_local_scratch() {
     return 1
 }
 
-FAST_DIR="${FAST_DIR:-$LUSTRE_ROOT/scratch/fast}"
 LUSTRE_ROOT="${LUSTRE_ROOT:-/expanse/lustre/scratch/$USER/temp_project}"
+FAST_DIR="${FAST_DIR:-$LUSTRE_ROOT/scratch/fast}"
 SLOW_DIR="${SLOW_DIR:-}"
 if [[ -z "$SLOW_DIR" ]]; then
     SLOW_DIR="$(pick_local_scratch)" || {
