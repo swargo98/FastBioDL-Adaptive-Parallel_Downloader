@@ -173,21 +173,21 @@ for ACC in "$ACC_SMALL" "$ACC_MEDIUM" "$ACC_LARGE"; do
     echo "  Accession: $ACC"
     echo "============================================================"
 
-    # echo "[placement_conversion] Starting for $ACC ..."
-    # "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_conversion.py" \
-    #     "$ACC" \
-    #     --fast-dir "$FAST_DIR" \
-    #     --slow-dir "$SLOW_DIR" \
-    #     --dest-dir "$DEST_DIR" \
-    #     --cells "$CELLS" \
-    #     --threads "$THREADS" \
-    #     --reps "$REPS" \
-    #     --json-out "$RUN_OUT/placement_conversion_${ACC}.json" \
-    #     --cleanup \
-    # |& tee "$RUN_OUT/placement_conversion_${ACC}.log" \
-    # || { echo "[WARN] placement_conversion failed for $ACC (rc=$?)"; overall_status=1; }
+    echo "[placement_conversion] Starting for $ACC ..."
+    "$PYTHON_BIN" "$REPO_DIR/benchmark_placement_conversion.py" \
+        "$ACC" \
+        --fast-dir "$FAST_DIR" \
+        --slow-dir "$SLOW_DIR" \
+        --dest-dir "$DEST_DIR" \
+        --cells "$CELLS" \
+        --threads "$THREADS" \
+        --reps "$REPS" \
+        --json-out "$RUN_OUT/placement_conversion_${ACC}.json" \
+        --cleanup \
+    |& tee "$RUN_OUT/placement_conversion_${ACC}.log" \
+    || { echo "[WARN] placement_conversion failed for $ACC (rc=$?)"; overall_status=1; }
 
-    # echo ""
+    echo ""
 
     echo "[placement_mover: nvme -> lustre] Starting for $ACC ..."
     "$PYTHON_BIN" -u  "$REPO_DIR/benchmark_placement_mover_expanse_fixed.py" \
