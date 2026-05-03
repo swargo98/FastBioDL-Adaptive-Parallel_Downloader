@@ -84,7 +84,7 @@ echo "Results:        $LUSTRE_OUT"
 echo "=========================================="
 which aria2c fasterq-dump pigz || true
 
-"$PYTHON_BIN" benchmark_max_jobs_gridsearch.py \
+"$PYTHON_BIN" benchmark_max_jobs_gridsearch_new.py \
     "${ACCESSIONS[@]}" \
     --repeats "$REPEATS" \
     --threads "$THREADS" \
@@ -96,8 +96,8 @@ which aria2c fasterq-dump pigz || true
     --cleanup-work-root
 status=$?
 
-cp "$REPO_DIR/run_benchmark_max_jobs_gridsearch_expanse.sh" "$LUSTRE_OUT/" 2>/dev/null || true
-cp "$REPO_DIR/benchmark_max_jobs_gridsearch.py" "$LUSTRE_OUT/" 2>/dev/null || true
+cp "$REPO_DIR/run_benchmark_max_jobs_gridsearch_expanse_new.sh" "$LUSTRE_OUT/" 2>/dev/null || true
+cp "$REPO_DIR/benchmark_max_jobs_gridsearch_new.py" "$LUSTRE_OUT/" 2>/dev/null || true
 cp "slurm_${SLURM_JOB_ID}.out" "slurm_${SLURM_JOB_ID}.err" "$LUSTRE_OUT/" 2>/dev/null || true
 
 echo "Benchmark exit code: $status"

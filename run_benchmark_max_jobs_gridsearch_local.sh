@@ -88,7 +88,7 @@ echo "Results:        $RESULTS_OUT"
 echo "=========================================="
 which aria2c fasterq-dump pigz || true
 
-"$PYTHON_BIN" benchmark_max_jobs_gridsearch.py \
+"$PYTHON_BIN" benchmark_max_jobs_gridsearch_new.py \
     "${ACCESSIONS[@]}" \
     --repeats "$REPEATS" \
     --threads "$THREADS" \
@@ -101,7 +101,7 @@ which aria2c fasterq-dump pigz || true
 status=$?
 
 cp "$REPO_DIR/run_benchmark_max_jobs_gridsearch_local.sh" "$RESULTS_OUT/" 2>/dev/null || true
-cp "$REPO_DIR/benchmark_max_jobs_gridsearch.py" "$RESULTS_OUT/" 2>/dev/null || true
+cp "$REPO_DIR/benchmark_max_jobs_gridsearch_new.py" "$RESULTS_OUT/" 2>/dev/null || true
 
 echo "Benchmark exit code: $status"
 echo "Results in $RESULTS_OUT"
