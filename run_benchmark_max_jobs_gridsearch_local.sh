@@ -39,8 +39,8 @@ cd "$REPO_DIR" || exit 1
 # ---------------------------------------------------------------------------
 # Storage layout: NVMe / NVMe / HDD
 # ---------------------------------------------------------------------------
-NVME_MOUNT="${NVME_MOUNT:-/mnt/nvme}"
-HDD_MOUNT="${HDD_MOUNT:-/mnt/hdd}"
+NVME_MOUNT="${NVME_MOUNT:-/}"
+HDD_MOUNT="${HDD_MOUNT:-/mnt/storage}"
 JOB_ID="${JOB_ID:-$$}"
 
 for tier in "$NVME_MOUNT" "$HDD_MOUNT"; do
