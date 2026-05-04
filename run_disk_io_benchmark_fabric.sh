@@ -91,7 +91,7 @@ if [[ -n "$SKIP" ]]; then
     EXTRA+=( --skip "$SKIP" )
 fi
 
-"$PYTHON_BIN" disk_io_benchmark.py \
+"$PYTHON_BIN" -u disk_io_benchmark.py \
     --tier "nvme=$NVME_TIER" \
     --tier "hdd=$HDD_TIER" \
     --repeats "$REPEATS" \
