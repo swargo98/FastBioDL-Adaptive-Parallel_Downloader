@@ -21,7 +21,6 @@ from typing import List, Tuple, Optional, Dict, Set
 import argparse
 import json
 from converter import SRAConverter
-from mover import FileMover
 import queue
 from ncbi_lookup import get_ncbi_urls as shared_get_ncbi_urls
 
@@ -1113,8 +1112,17 @@ if __name__ == '__main__':
     )
     parser.add_argument("-i", "--input", required=True,
                         help="Text file: one accession per line.")
-    parser.add_argument("-o", "--outdir", default="fastbiodl/output/",
-                        help="Final destination for .fastq.gz files (should be on DISK for benchmark).")
+    parser.add_argument("-o", "--outdir", "--out-dir", default="fastbiodl/output/",
+                        help="Slow-tier destination for .fastq.gz files "
+                             "(pigz writes directly here; no separate move stage).")
+    parser.add_argument("--sra-dir", default=None,
+                        help="Fast-tier directory where .sra downloads are written. "
+                             "Defaults to a per-PID subdir under LOCAL_SCRATCH "
+                             "(see config_fastbiodl.get_fastbiodl_tmpfs_dir).")
+    parser.add_argument("--fastq-dir", default=None,
+                        help="Fast-tier working directory for the SRA→FASTQ conversion stage. "
+                             "The converter creates ./fastq and ./tmp subdirectories here. "
+                             "Defaults to the same per-PID LOCAL_SCRATCH subdir used by --sra-dir.")
     parser.add_argument("--fastq", action="store_true",
                         help="Use fastq_ftp instead of sra_ftp")
     parser.add_argument("--segment-size", type=int, default=512,
@@ -1170,16 +1178,25 @@ if __name__ == '__main__':
     configurations["max_retries"] = args.max_retries
     probing_time = configurations.get("probing_sec", 5)
 
-    tmpfs_dir = get_fastbiodl_tmpfs_dir()
-    download_dir = tmpfs_dir                # downloads land here
-    root_dir = args.outdir                  # final destination (NVMe / lustre / etc.)
-    os.makedirs(tmpfs_dir, exist_ok=True)
-    
-    try:
-        os.makedirs(download_dir, exist_ok=True)
-    except Exception as e:
-        logging.error(f"Failed to create download directory: {e}")
-        sys.exit(1)
+    # Resolve fast-tier paths from CLI flags, falling back to the LOCAL_SCRATCH
+    # derived per-PID directory used historically.
+    default_tmpfs = get_fastbiodl_tmpfs_dir()
+    sra_dir       = args.sra_dir if args.sra_dir else default_tmpfs
+    fastq_work_dir = args.fastq_dir if args.fastq_dir else default_tmpfs
+    download_dir   = sra_dir               # downloader writes .sra files here (fast tier)
+    root_dir       = args.outdir           # slow-tier destination for .fastq.gz
+
+    for d in (sra_dir, fastq_work_dir, root_dir):
+        try:
+            os.makedirs(d, exist_ok=True)
+        except Exception as e:
+            logging.error(f"Failed to create directory {d}: {e}")
+            sys.exit(1)
+
+    logging.info(
+        f"Storage layout — sra-dir (fast): {sra_dir} | "
+        f"fastq-dir (fast): {fastq_work_dir} | out-dir (slow): {root_dir}"
+    )
 
     # Shared counters and structures
     t_start           = time.time()          # ← benchmark: pipeline start
@@ -1285,7 +1302,8 @@ if __name__ == '__main__':
     converter = SRAConverter(
         processing_queue=processing_queue,
         move_queue=move_queue,
-        work_dir=tmpfs_dir,
+        work_dir=fastq_work_dir,
+        compressed_output_dir=root_dir,
         nvme_device=get_nvme_device(),
         threads_per_job=configurations.get("conversion_threads", 8),
         cpu_threshold=configurations.get("cpu_threshold", 85.0),
@@ -1305,13 +1323,12 @@ if __name__ == '__main__':
     converter.start()
 
     configurations["thread_limit"] = configurations.get("max_cc", mp.cpu_count())
-    mover = FileMover(
-        move_queue=move_queue,
-        tmpfs_dir=tmpfs_dir,
-        root_dir=root_dir,
-        config=configurations,
-    )
-    mover.begin()
+
+    # FFS-direct pipeline: pigz writes .fastq.gz straight to root_dir (slow
+    # tier), so no movement is required and no FileMover or completion-drainer
+    # threads are needed. The move_queue is still populated by the converter
+    # (purely as a completion signal stream) and is drained inline after the
+    # converter stops; see the drain loop near the benchmark-summary section.
 
     # Start reporting and optimization
     start = mp.Value("d", time.time())
@@ -1366,9 +1383,23 @@ if __name__ == '__main__':
             f"This indicates a bug — please report."
         )
 
-    move_queue.put(None)          # sentinel → FileMover feeder exits, sets transfer_done
-    mover.stop(timeout=7200.0)   # waits for all .fastq.gz to land on root_dir
-    logging.info("All files moved to final destination.")
+    # Drain the move_queue inline. After converter.stop() has returned, the
+    # result-collector loop has already pushed every successful .gz path; no
+    # new puts will arrive. We empty the queue with get_nowait so we never
+    # block, count entries for the benchmark log, and move on.
+    completed_compressed = 0
+    while True:
+        try:
+            gz_path = move_queue.get_nowait()
+        except queue.Empty:
+            break
+        if gz_path is None:
+            continue
+        completed_compressed += 1
+    logging.info(
+        f"FFS-direct: {completed_compressed} compressed file(s) emitted "
+        f"directly to slow tier {root_dir} (no move stage)."
+    )
 
     # ── Benchmark timing summary ─────────────────────────────────────────────
     t_end = time.time()

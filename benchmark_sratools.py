@@ -2,11 +2,12 @@
 """
 benchmark_sratools.py — Benchmark the classic sra-tools pipeline.
 
-Pipeline
---------
-  prefetch      → save .sra files to DISK (--sra-dir)
-  fasterq-dump  → save .fastq to NVMe (--fastq-dir) [recommended for temp I/O]
-  pigz          → compress .fastq → .fastq.gz, final output to DISK (--out-dir)
+Pipeline (FFS-direct, no move stage)
+------------------------------------
+  prefetch      → save .sra files to fast tier (--sra-dir)
+  fasterq-dump  → save .fastq to fast tier (--fastq-dir)
+  pigz -c       → stream .fastq.gz directly to slow tier (--out-dir); no
+                  separate shutil.move stage.
 
 Timing model (matches fastbiodl benchmark)
 ------------------------------------------
@@ -127,16 +128,52 @@ def _compress_and_move_fastq(
     log: logging.Logger,
     comp_details: Dict[str, Dict[str, object]],
 ) -> Tuple[float, bool]:
-    """Compress one FASTQ, move to out_dir, and clean up NVMe artifacts."""
+    """Compress one FASTQ with pigz, streaming output directly into out_dir.
+
+    FFS-direct: `pigz -c` reads the .fastq from the fast tier and writes the
+    .gz stream straight to a file on the slow tier (out_dir). The source
+    .fastq is removed after success. The function name retains the historic
+    "_and_move" suffix for call-site compatibility; no shutil.move is used.
+    """
     rel_key = str(fq)
     out_gz = os.path.join(out_dir, fq.name + ".gz")
-    elapsed, ok, stderr_tail = _run(["pigz", "-1", "-p", str(threads), str(fq)], log)
-    gz_src = str(fq) + ".gz"
+    os.makedirs(out_dir, exist_ok=True)
 
-    if ok and os.path.exists(gz_src):
-        shutil.move(gz_src, out_gz)
-        if os.path.exists(gz_src):
-            os.remove(gz_src)
+    log.info(f"$ pigz -1 -c -p {threads} {fq} > {out_gz}")
+    t0 = time.time()
+    ok = False
+    stderr_tail = ""
+    try:
+        with open(out_gz, "wb") as gz_fh:
+            result = subprocess.run(
+                ["pigz", "-1", "-c", "-p", str(threads), str(fq)],
+                stdout=gz_fh,
+                stderr=subprocess.PIPE,
+                timeout=7200,
+            )
+        elapsed = time.time() - t0
+        stderr_tail = result.stderr.decode(errors="replace").strip()[-500:]
+        ok = result.returncode == 0
+        if not ok:
+            log.error(f"  pigz FAILED (rc={result.returncode}): {stderr_tail}")
+            try:
+                if os.path.exists(out_gz):
+                    os.remove(out_gz)
+            except OSError:
+                pass
+    except subprocess.TimeoutExpired:
+        elapsed = time.time() - t0
+        log.error(f"  pigz TIMED OUT after {elapsed:.0f}s for {fq}")
+        try:
+            if os.path.exists(out_gz):
+                os.remove(out_gz)
+        except OSError:
+            pass
+        stderr_tail = "timeout"
+    except FileNotFoundError as e:
+        elapsed = time.time() - t0
+        log.error(f"  COMMAND NOT FOUND: {e}")
+        stderr_tail = str(e)
 
     if ok and fq.exists():
         try:
@@ -418,9 +455,6 @@ def main():
         if flushed > 0:
             log.info(f"  Backlog flush complete after {acc}: {flushed} file(s)")
 
-    serial_end = time.time()
-    t_conv_end = serial_end
-    t_comp_start = serial_end
 
     # Final defensive flush to leave NVMe clean.
     flushed_final, elapsed_final = _flush_fastq_backlog(
@@ -434,6 +468,9 @@ def main():
     if flushed_final > 0:
         log.info(f"  Final backlog flush complete: {flushed_final} file(s)")
 
+    serial_end = time.time()
+    t_conv_end = serial_end
+    # t_comp_start = serial_end
     t_comp_end = serial_end
     log.info(f"Serial conversion time: {conversion_time:.1f}s")
     log.info(f"Serial compression time: {compression_time:.1f}s")

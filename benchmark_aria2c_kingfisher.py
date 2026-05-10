@@ -2,22 +2,21 @@
 """
 benchmark_aria2c_kingfisher.py — Benchmark aria2c with per-accession pipeline.
 
-Pipeline
---------
+Pipeline (FFS-direct, no move stage)
+------------------------------------
   For each accession (in order):
     1) Fetch SRA download URL(s) via NCBI efetch
-    2) Download with aria2c                 -> DISK  (--sra-dir)
-    3) Convert .sra -> .fastq with fasterq  -> NVMe  (--fastq-dir)
-    4) Compress .fastq -> .fastq.gz with pigz -> DISK (--out-dir)
-
-This differs from benchmark_aria2c.py, which is phase-batched as:
-  download all -> convert all -> compress all.
+    2) Download with aria2c                 -> fast tier (--sra-dir)
+    3) Convert .sra -> .fastq with fasterq  -> fast tier (--fastq-dir)
+    4) Compress .fastq -> .fastq.gz via `pigz -c` redirected directly to
+       --out-dir on the slow tier; no separate shutil.move stage.
 
 Timing model
 ------------
     download_time_s    = sum of per-accession URL-fetch + download wall time
   conversion_time_s  = sum of per-accession conversion wall time
-  compression_time_s = sum of per-accession compression wall time
+  compression_time_s = sum of per-accession compression wall time (includes
+                       the cross-tier write to slow storage)
   total_time_s       = end-to-end benchmark wall time
 
 Requirements
@@ -148,38 +147,71 @@ def _compress_accession_fastqs(
     threads: int,
     log: logging.Logger,
 ) -> Tuple[float, bool, dict]:
-    """Compress all .fastq files produced for one accession."""
+    """Compress all .fastq files for one accession; pigz writes directly to out_dir.
+
+    Implements the FFS-direct semantics: pigz reads the .fastq from the fast
+    tier (acc_fastq_dir) and streams its compressed output to a file opened
+    on the slow tier (out_dir) via the `-c` flag. No shutil.move is invoked.
+    """
     fastq_files = sorted(Path(acc_fastq_dir).glob("*.fastq"))
     if not fastq_files:
         return 0.0, False, {"reason": "no_fastq_files", "files": {}}
 
+    os.makedirs(out_dir, exist_ok=True)
     total_elapsed = 0.0
     all_ok = True
     file_details = {}
 
     for fq in fastq_files:
         out_gz = os.path.join(out_dir, fq.name + ".gz")
-        elapsed, ok, stderr_tail = _run([
-            "pigz", "-1", "-p", str(threads), str(fq),
-        ], log)
+        log.info(f"$ pigz -1 -c -p {threads} {fq} > {out_gz}")
+        t0 = time.time()
+        ok = False
+        stderr_tail = ""
+        try:
+            with open(out_gz, "wb") as gz_fh:
+                result = subprocess.run(
+                    ["pigz", "-1", "-c", "-p", str(threads), str(fq)],
+                    stdout=gz_fh,
+                    stderr=subprocess.PIPE,
+                    timeout=7200,
+                )
+            elapsed = time.time() - t0
+            stderr_tail = result.stderr.decode(errors="replace").strip()[-500:]
+            ok = result.returncode == 0
+            if not ok:
+                log.error(f"  pigz FAILED (rc={result.returncode}): {stderr_tail}")
+                # Remove the truncated .gz so we never ship a corrupt artifact.
+                try:
+                    if os.path.exists(out_gz):
+                        os.remove(out_gz)
+                except OSError:
+                    pass
+        except subprocess.TimeoutExpired:
+            elapsed = time.time() - t0
+            log.error(f"  pigz TIMED OUT after {elapsed:.0f}s for {fq}")
+            try:
+                if os.path.exists(out_gz):
+                    os.remove(out_gz)
+            except OSError:
+                pass
+            stderr_tail = "timeout"
+        except FileNotFoundError as e:
+            elapsed = time.time() - t0
+            log.error(f"  COMMAND NOT FOUND: {e}  -- is pigz in PATH?")
+            stderr_tail = str(e)
+
         total_elapsed += elapsed
 
-        gz_src = str(fq) + ".gz"
-        if ok and os.path.exists(gz_src):
-            shutil.move(gz_src, out_gz)
-            # Ensure source .gz does not linger after move completion.
-            if os.path.exists(gz_src):
-                os.remove(gz_src)
-        else:
-            all_ok = False
-
-        # pigz usually removes input .fastq on success; enforce cleanup if it remains.
         if ok and fq.exists():
+            # pigz -c does not remove its source; clean up the fast-tier .fastq.
             try:
                 fq.unlink()
             except OSError as e:
                 all_ok = False
                 log.warning(f"  Could not remove FASTQ {fq}: {e}")
+        if not ok:
+            all_ok = False
 
         file_details[fq.name] = {
             "ok": ok and os.path.exists(out_gz),

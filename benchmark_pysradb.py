@@ -2,12 +2,13 @@
 """
 benchmark_pysradb.py -- Benchmark a pysradb-like requests downloader.
 
-Pipeline
---------
+Pipeline (FFS-direct, no move stage)
+------------------------------------
   1. Fetch SRA download URLs via NCBI efetch (shared ncbi_lookup)
-  2. Download files with requests.get using t worker threads   -> DISK (--sra-dir)
-  3. Convert .sra -> .fastq with fasterq-dump                  -> NVMe (--fastq-dir)
-  4. Compress .fastq -> .fastq.gz with pigz                    -> DISK (--out-dir)
+  2. Download files with requests.get using t worker threads   -> fast tier (--sra-dir)
+  3. Convert .sra -> .fastq with fasterq-dump                  -> fast tier (--fastq-dir)
+  4. Compress .fastq -> .fastq.gz via `pigz -c` redirected
+     directly to slow tier (--out-dir); no shutil.move stage.
 
 Timing model
 ------------
@@ -189,16 +190,52 @@ def _compress_and_move_fastq(
     log: logging.Logger,
     comp_details: Dict[str, Dict[str, object]],
 ) -> Tuple[float, bool]:
-    """Compress one FASTQ, move to out_dir, and clean up NVMe artifacts."""
+    """Compress one FASTQ with pigz, streaming output directly into out_dir.
+
+    FFS-direct: `pigz -c` reads the .fastq from the fast tier and writes the
+    .gz stream straight to a file on the slow tier (out_dir). The source
+    .fastq is removed afterwards. The function name retains the historic
+    "_and_move" suffix for call-site compatibility; no shutil.move is used.
+    """
     rel_key = str(fq)
     out_gz = os.path.join(out_dir, fq.name + ".gz")
-    elapsed, ok, stderr_tail = _run(["pigz", "-1", "-p", str(threads), str(fq)], log)
-    gz_src = str(fq) + ".gz"
+    os.makedirs(out_dir, exist_ok=True)
 
-    if ok and os.path.exists(gz_src):
-        shutil.move(gz_src, out_gz)
-        if os.path.exists(gz_src):
-            os.remove(gz_src)
+    log.info(f"$ pigz -1 -c -p {threads} {fq} > {out_gz}")
+    t0 = time.time()
+    ok = False
+    stderr_tail = ""
+    try:
+        with open(out_gz, "wb") as gz_fh:
+            result = subprocess.run(
+                ["pigz", "-1", "-c", "-p", str(threads), str(fq)],
+                stdout=gz_fh,
+                stderr=subprocess.PIPE,
+                timeout=7200,
+            )
+        elapsed = time.time() - t0
+        stderr_tail = result.stderr.decode(errors="replace").strip()[-500:]
+        ok = result.returncode == 0
+        if not ok:
+            log.error(f"  pigz FAILED (rc={result.returncode}): {stderr_tail}")
+            try:
+                if os.path.exists(out_gz):
+                    os.remove(out_gz)
+            except OSError:
+                pass
+    except subprocess.TimeoutExpired:
+        elapsed = time.time() - t0
+        log.error(f"  pigz TIMED OUT after {elapsed:.0f}s for {fq}")
+        try:
+            if os.path.exists(out_gz):
+                os.remove(out_gz)
+        except OSError:
+            pass
+        stderr_tail = "timeout"
+    except FileNotFoundError as e:
+        elapsed = time.time() - t0
+        log.error(f"  COMMAND NOT FOUND: {e} -- is pigz in PATH?")
+        stderr_tail = str(e)
 
     if ok and fq.exists():
         try:
