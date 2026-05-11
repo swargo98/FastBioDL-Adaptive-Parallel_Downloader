@@ -379,244 +379,392 @@ def _fasterq_worker(
         result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, 0.0, 0.0))
 
 
+# def _pigz_worker(
+#     job_id: int,
+#     sra_path: str,
+#     job_output_dir: str,
+#     threads: int,
+#     t_fasterq_start: float,
+#     t_fasterq_done: float,
+#     compressed_output_dir: str,
+#     result_queue: mp.Queue,
+#     byte_counter,
+#     removed_fastq_counter,
+#     active_pigz_jobs,
+# ):
+#     """Compress fasterq outputs to .fastq.gz directly on the slow tier.
+
+#     pigz is invoked with `-c` so its stdout is captured by the parent and
+#     redirected to a file opened on `compressed_output_dir`. This eliminates
+#     the separate move stage previously used to migrate .fastq.gz off the
+#     fast tier. The source .fastq remains on the fast tier briefly and is
+#     removed after pigz reports success.
+#     """
+#     accession = os.path.basename(sra_path).split(".")[0]
+#     logging.info(f"[Converter #{job_id}] Starting pigz for {accession}")
+
+#     fastq_files = [
+#         os.path.join(job_output_dir, f)
+#         for f in os.listdir(job_output_dir)
+#         if f.endswith(".fastq")
+#     ]
+
+#     if not fastq_files:
+#         logging.error(
+#             f"[Converter #{job_id}] No .fastq files found after fasterq-dump for {accession}"
+#         )
+#         result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, 0.0, 0.0))
+#         _cleanup_dir(job_output_dir)
+#         _decrement_shared_counter(active_pigz_jobs)
+#         return
+
+#     try:
+#         os.makedirs(compressed_output_dir, exist_ok=True)
+#     except OSError as e:
+#         logging.error(
+#             f"[Converter #{job_id}] Could not create compressed output dir "
+#             f"{compressed_output_dir}: {e}"
+#         )
+#         result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, 0.0, 0.0))
+#         _cleanup_dir(job_output_dir)
+#         _decrement_shared_counter(active_pigz_jobs)
+#         return
+
+#     fastq_gz_files = []
+#     removed_fastq_bytes_job = 0
+#     t_pigz_start = time.time()
+
+#     # Open output files on slow tier and launch pigz with stdout piped to each.
+#     pigz_outputs = {}  # fq -> (gz_path, file_handle)
+#     procs = {}
+#     open_failure = False
+#     for fq in fastq_files:
+#         gz_path = os.path.join(compressed_output_dir, os.path.basename(fq) + ".gz")
+#         try:
+#             out_fh = open(gz_path, "wb")
+#         except OSError as e:
+#             logging.error(
+#                 f"[Converter #{job_id}] Could not open {gz_path} for write: {e}"
+#             )
+#             open_failure = True
+#             break
+#         pigz_outputs[fq] = (gz_path, out_fh)
+
+#     if open_failure:
+#         # Close any already-opened handles and bail out.
+#         for _gz_path, _fh in pigz_outputs.values():
+#             try:
+#                 _fh.close()
+#             except Exception:
+#                 pass
+#             try:
+#                 if os.path.exists(_gz_path):
+#                     os.remove(_gz_path)
+#             except OSError:
+#                 pass
+#         _cleanup_dir(job_output_dir)
+#         result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
+#         _decrement_shared_counter(active_pigz_jobs)
+#         return
+
+#     for fq, (gz_path, out_fh) in pigz_outputs.items():
+#         try:
+#             procs[fq] = subprocess.Popen(
+#                 ["pigz", "-1", "-c", "-p", str(max(1, threads)), fq],
+#                 stdout=out_fh,
+#                 stderr=subprocess.PIPE,
+#             )
+#         except FileNotFoundError:
+#             logging.error(f"[Converter #{job_id}] pigz not found in PATH")
+#             # Clean up file handles and any partial .gz files already on slow tier.
+#             for _gz_path, _fh in pigz_outputs.values():
+#                 try:
+#                     _fh.close()
+#                 except Exception:
+#                     pass
+#                 try:
+#                     if os.path.exists(_gz_path):
+#                         os.remove(_gz_path)
+#                 except OSError:
+#                     pass
+#             _terminate_pigz_processes(procs)
+#             _cleanup_dir(job_output_dir)
+#             result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
+#             _decrement_shared_counter(active_pigz_jobs)
+#             return
+
+#     for fq, proc in procs.items():
+#         gz_path, out_fh = pigz_outputs[fq]
+#         prev_gz_size = 0
+#         deadline = time.time() + 3600
+#         try:
+#             while True:
+#                 try:
+#                     proc.wait(timeout=1.0)
+#                     # Close our parent-side handle so size reflects everything pigz wrote.
+#                     try:
+#                         out_fh.close()
+#                     except Exception:
+#                         pass
+#                     if os.path.exists(gz_path):
+#                         cur_gz_size = os.path.getsize(gz_path)
+#                         delta = cur_gz_size - prev_gz_size
+#                         if delta > 0:
+#                             with byte_counter.get_lock():
+#                                 byte_counter.value += delta
+#                     break
+#                 except subprocess.TimeoutExpired:
+#                     if time.time() > deadline:
+#                         proc.kill()
+#                         try:
+#                             out_fh.close()
+#                         except Exception:
+#                             pass
+#                         raise subprocess.TimeoutExpired(proc.args, 3600)
+#                     if os.path.exists(gz_path):
+#                         cur_gz_size = os.path.getsize(gz_path)
+#                         delta = cur_gz_size - prev_gz_size
+#                         if delta > 0:
+#                             with byte_counter.get_lock():
+#                                 byte_counter.value += delta
+#                             prev_gz_size = cur_gz_size
+
+#             if proc.returncode != 0:
+#                 err = proc.stderr.read().decode(errors="replace").strip()
+#                 logging.error(f"[Converter #{job_id}] pigz failed for {fq}: {err}")
+#                 # Remove the (likely truncated) .gz we wrote so we never ship a
+#                 # corrupt artifact to the slow tier.
+#                 try:
+#                     if os.path.exists(gz_path):
+#                         os.remove(gz_path)
+#                 except OSError:
+#                     pass
+#                 _terminate_pigz_processes(procs, exclude=proc)
+#                 # Also clean up any sibling slow-tier files for this job.
+#                 for _fq, (_gz_path, _fh) in pigz_outputs.items():
+#                     if _fq == fq:
+#                         continue
+#                     try:
+#                         _fh.close()
+#                     except Exception:
+#                         pass
+#                     try:
+#                         if os.path.exists(_gz_path):
+#                             os.remove(_gz_path)
+#                     except OSError:
+#                         pass
+#                 _cleanup_dir(job_output_dir)
+#                 result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
+#                 _decrement_shared_counter(active_pigz_jobs)
+#                 return
+#             if os.path.exists(gz_path):
+#                 fastq_gz_files.append(gz_path)
+
+#             # pigz -c does not consume the input file; remove it manually.
+#             if os.path.exists(fq):
+#                 try:
+#                     removed_size = os.path.getsize(fq)
+#                     os.remove(fq)
+#                     removed_fastq_bytes_job += removed_size
+#                     with removed_fastq_counter.get_lock():
+#                         removed_fastq_counter.value += removed_size
+#                     logging.info(
+#                         f"[Converter #{job_id}] Removed source FASTQ after compression: {fq} "
+#                         f"({_human_bytes(removed_size)})"
+#                     )
+#                 except OSError as e:
+#                     logging.warning(f"[Converter #{job_id}] Could not remove source FASTQ {fq}: {e}")
+#         except subprocess.TimeoutExpired:
+#             logging.error(f"[Converter #{job_id}] pigz timed out for {fq}")
+#             try:
+#                 if os.path.exists(gz_path):
+#                     os.remove(gz_path)
+#             except OSError:
+#                 pass
+#             _terminate_pigz_processes(procs, exclude=proc)
+#             for _fq, (_gz_path, _fh) in pigz_outputs.items():
+#                 if _fq == fq:
+#                     continue
+#                 try:
+#                     _fh.close()
+#                 except Exception:
+#                     pass
+#                 try:
+#                     if os.path.exists(_gz_path):
+#                         os.remove(_gz_path)
+#                 except OSError:
+#                     pass
+#             _cleanup_dir(job_output_dir)
+#             result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
+#             _decrement_shared_counter(active_pigz_jobs)
+#             return
+
+#     t_pigz_done = time.time()
+#     logging.info(
+#         f"[Converter #{job_id}] Completed {accession}: "
+#         f"{[os.path.basename(f) for f in fastq_gz_files]} "
+#         f"(written directly to slow tier: {compressed_output_dir})"
+#     )
+#     if removed_fastq_bytes_job > 0:
+#         logging.info(
+#             f"[Converter #{job_id}] Compression cleanup reclaimed "
+#             f"{_human_bytes(removed_fastq_bytes_job)} for {accession}"
+#         )
+#     # Clean up the now-empty per-job fastq staging directory.
+#     _cleanup_dir(job_output_dir)
+#     result_queue.put((sra_path, fastq_gz_files, True,
+#                       t_fasterq_start, t_fasterq_done,
+#                       t_pigz_start, t_pigz_done))
+#     _decrement_shared_counter(active_pigz_jobs)
+
+ 
+ 
 def _pigz_worker(
-    job_id: int,
-    sra_path: str,
-    job_output_dir: str,
-    threads: int,
-    t_fasterq_start: float,
-    t_fasterq_done: float,
-    compressed_output_dir: str,
-    result_queue: mp.Queue,
-    byte_counter,
-    removed_fastq_counter,
-    active_pigz_jobs,
+    self,
+    fastq_path,
+    job_id,
+    accession,
+    threads,
+    # any other parameters the existing method accepts go here unchanged
 ):
-    """Compress fasterq outputs to .fastq.gz directly on the slow tier.
-
-    pigz is invoked with `-c` so its stdout is captured by the parent and
-    redirected to a file opened on `compressed_output_dir`. This eliminates
-    the separate move stage previously used to migrate .fastq.gz off the
-    fast tier. The source .fastq remains on the fast tier briefly and is
-    removed after pigz reports success.
+    """Compress a single .fastq from the fast tier directly into
+    compressed_output_dir on the slow tier.
+ 
+    Writes pigz stderr to a sibling file so the stderr pipe can never fill
+    and deadlock proc.wait(). Always decrements _active_pigz_jobs.
     """
-    accession = os.path.basename(sra_path).split(".")[0]
     logging.info(f"[Converter #{job_id}] Starting pigz for {accession}")
-
-    fastq_files = [
-        os.path.join(job_output_dir, f)
-        for f in os.listdir(job_output_dir)
-        if f.endswith(".fastq")
-    ]
-
-    if not fastq_files:
-        logging.error(
-            f"[Converter #{job_id}] No .fastq files found after fasterq-dump for {accession}"
-        )
-        result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, 0.0, 0.0))
-        _cleanup_dir(job_output_dir)
-        _decrement_shared_counter(active_pigz_jobs)
-        return
-
+ 
+    base = os.path.basename(fastq_path)
+    if base.endswith(".fastq"):
+        gz_name = base + ".gz"
+    else:
+        gz_name = base + ".gz"
+    gz_path = os.path.join(self.compressed_output_dir, gz_name)
+    stderr_path = gz_path + ".pigz.stderr"
+ 
+    out_fh = None
+    err_fh = None
+    proc = None
+    decremented = False
+ 
+    # Per-job hard ceiling. 1800 s is far above any legitimate pigz -1 runtime
+    # for a single SRA-derived FASTQ; we have seen 2.5 GB inputs finish in 3 s.
+    # If we ever hit this, something is wrong and we want a loud failure rather
+    # than a silent wedge.
+    DEADLINE_SEC = 1800.0
+    started_at = time.monotonic()
+ 
     try:
-        os.makedirs(compressed_output_dir, exist_ok=True)
-    except OSError as e:
-        logging.error(
-            f"[Converter #{job_id}] Could not create compressed output dir "
-            f"{compressed_output_dir}: {e}"
+        out_fh = open(gz_path, "wb")
+        err_fh = open(stderr_path, "wb")
+ 
+        proc = subprocess.Popen(
+            ["pigz", "-1", "-c", "-p", str(threads), fastq_path],
+            stdin=subprocess.DEVNULL,   # never inherit/read parent stdin
+            stdout=out_fh,              # compressed bytes -> slow tier file
+            stderr=err_fh,              # stderr -> real file, no pipe buffer
         )
-        result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, 0.0, 0.0))
-        _cleanup_dir(job_output_dir)
-        _decrement_shared_counter(active_pigz_jobs)
-        return
-
-    fastq_gz_files = []
-    removed_fastq_bytes_job = 0
-    t_pigz_start = time.time()
-
-    # Open output files on slow tier and launch pigz with stdout piped to each.
-    pigz_outputs = {}  # fq -> (gz_path, file_handle)
-    procs = {}
-    open_failure = False
-    for fq in fastq_files:
-        gz_path = os.path.join(compressed_output_dir, os.path.basename(fq) + ".gz")
-        try:
-            out_fh = open(gz_path, "wb")
-        except OSError as e:
-            logging.error(
-                f"[Converter #{job_id}] Could not open {gz_path} for write: {e}"
-            )
-            open_failure = True
-            break
-        pigz_outputs[fq] = (gz_path, out_fh)
-
-    if open_failure:
-        # Close any already-opened handles and bail out.
-        for _gz_path, _fh in pigz_outputs.values():
+ 
+        # Poll loop. Same shape as before but bounded by a deadline.
+        while True:
             try:
-                _fh.close()
+                rc = proc.wait(timeout=1.0)
+                break
+            except subprocess.TimeoutExpired:
+                if (time.monotonic() - started_at) > DEADLINE_SEC:
+                    logging.error(
+                        f"[Converter #{job_id}] pigz exceeded "
+                        f"{DEADLINE_SEC:.0f}s deadline for {fastq_path}; "
+                        f"killing process group"
+                    )
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=5.0)
+                    except Exception as kill_exc:
+                        logging.error(
+                            f"[Converter #{job_id}] kill failed: {kill_exc}"
+                        )
+                    raise RuntimeError(
+                        f"pigz hard-deadline exceeded for {fastq_path}"
+                    )
+ 
+        if rc != 0:
+            # Pull a small tail of stderr to help triage.
+            err_fh.flush()
+            try:
+                with open(stderr_path, "rb") as f:
+                    tail = f.read()[-512:].decode(errors="replace")
+            except Exception:
+                tail = "(could not read stderr file)"
+            raise subprocess.CalledProcessError(
+                rc,
+                ["pigz", "-1", "-c", "-p", str(threads), fastq_path],
+                output=None,
+                stderr=tail,
+            )
+ 
+        # Success path. Remove the source .fastq (pigz -c does not consume it).
+        try:
+            src_size = os.path.getsize(fastq_path)
+        except OSError:
+            src_size = 0
+        try:
+            os.unlink(fastq_path)
+            logging.info(
+                f"[Converter #{job_id}] Removed source FASTQ after "
+                f"compression: {fastq_path} ({_human_bytes(src_size)})"
+            )
+        except OSError as exc:
+            logging.warning(
+                f"[Converter #{job_id}] Could not remove source FASTQ "
+                f"{fastq_path}: {exc}"
+            )
+ 
+        # Signal completion to the (now inline-drained) move_queue.
+        self.move_queue.put(gz_path)
+ 
+        return gz_path
+ 
+    finally:
+        # Close handles before counter release so file is fully flushed.
+        if out_fh is not None:
+            try:
+                out_fh.close()
             except Exception:
                 pass
+        if err_fh is not None:
             try:
-                if os.path.exists(_gz_path):
-                    os.remove(_gz_path)
-            except OSError:
+                err_fh.close()
+            except Exception:
                 pass
-        _cleanup_dir(job_output_dir)
-        result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
-        _decrement_shared_counter(active_pigz_jobs)
-        return
-
-    for fq, (gz_path, out_fh) in pigz_outputs.items():
+ 
+        # Remove the stderr file only if pigz emitted nothing AND the job
+        # succeeded. On failure, leave the stderr file in place for triage.
         try:
-            procs[fq] = subprocess.Popen(
-                ["pigz", "-1", "-c", "-p", str(max(1, threads)), fq],
-                stdout=out_fh,
-                stderr=subprocess.PIPE,
-            )
-        except FileNotFoundError:
-            logging.error(f"[Converter #{job_id}] pigz not found in PATH")
-            # Clean up file handles and any partial .gz files already on slow tier.
-            for _gz_path, _fh in pigz_outputs.values():
-                try:
-                    _fh.close()
-                except Exception:
-                    pass
-                try:
-                    if os.path.exists(_gz_path):
-                        os.remove(_gz_path)
-                except OSError:
-                    pass
-            _terminate_pigz_processes(procs)
-            _cleanup_dir(job_output_dir)
-            result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
-            _decrement_shared_counter(active_pigz_jobs)
-            return
-
-    for fq, proc in procs.items():
-        gz_path, out_fh = pigz_outputs[fq]
-        prev_gz_size = 0
-        deadline = time.time() + 3600
-        try:
-            while True:
-                try:
-                    proc.wait(timeout=1.0)
-                    # Close our parent-side handle so size reflects everything pigz wrote.
-                    try:
-                        out_fh.close()
-                    except Exception:
-                        pass
-                    if os.path.exists(gz_path):
-                        cur_gz_size = os.path.getsize(gz_path)
-                        delta = cur_gz_size - prev_gz_size
-                        if delta > 0:
-                            with byte_counter.get_lock():
-                                byte_counter.value += delta
-                    break
-                except subprocess.TimeoutExpired:
-                    if time.time() > deadline:
-                        proc.kill()
-                        try:
-                            out_fh.close()
-                        except Exception:
-                            pass
-                        raise subprocess.TimeoutExpired(proc.args, 3600)
-                    if os.path.exists(gz_path):
-                        cur_gz_size = os.path.getsize(gz_path)
-                        delta = cur_gz_size - prev_gz_size
-                        if delta > 0:
-                            with byte_counter.get_lock():
-                                byte_counter.value += delta
-                            prev_gz_size = cur_gz_size
-
-            if proc.returncode != 0:
-                err = proc.stderr.read().decode(errors="replace").strip()
-                logging.error(f"[Converter #{job_id}] pigz failed for {fq}: {err}")
-                # Remove the (likely truncated) .gz we wrote so we never ship a
-                # corrupt artifact to the slow tier.
-                try:
-                    if os.path.exists(gz_path):
-                        os.remove(gz_path)
-                except OSError:
-                    pass
-                _terminate_pigz_processes(procs, exclude=proc)
-                # Also clean up any sibling slow-tier files for this job.
-                for _fq, (_gz_path, _fh) in pigz_outputs.items():
-                    if _fq == fq:
-                        continue
-                    try:
-                        _fh.close()
-                    except Exception:
-                        pass
-                    try:
-                        if os.path.exists(_gz_path):
-                            os.remove(_gz_path)
-                    except OSError:
-                        pass
-                _cleanup_dir(job_output_dir)
-                result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
-                _decrement_shared_counter(active_pigz_jobs)
-                return
-            if os.path.exists(gz_path):
-                fastq_gz_files.append(gz_path)
-
-            # pigz -c does not consume the input file; remove it manually.
-            if os.path.exists(fq):
-                try:
-                    removed_size = os.path.getsize(fq)
-                    os.remove(fq)
-                    removed_fastq_bytes_job += removed_size
-                    with removed_fastq_counter.get_lock():
-                        removed_fastq_counter.value += removed_size
-                    logging.info(
-                        f"[Converter #{job_id}] Removed source FASTQ after compression: {fq} "
-                        f"({_human_bytes(removed_size)})"
-                    )
-                except OSError as e:
-                    logging.warning(f"[Converter #{job_id}] Could not remove source FASTQ {fq}: {e}")
-        except subprocess.TimeoutExpired:
-            logging.error(f"[Converter #{job_id}] pigz timed out for {fq}")
+            if os.path.exists(stderr_path):
+                if proc is not None and proc.returncode == 0 and \
+                   os.path.getsize(stderr_path) == 0:
+                    os.unlink(stderr_path)
+        except OSError:
+            pass
+ 
+        # CRITICAL: counter must be decremented on every exit path.
+        # _active_pigz_jobs is a multiprocessing.Value('i', 0) in the
+        # existing code; this lock pattern matches the increment in
+        # _pigz_dispatcher_loop.
+        if not decremented:
             try:
-                if os.path.exists(gz_path):
-                    os.remove(gz_path)
-            except OSError:
-                pass
-            _terminate_pigz_processes(procs, exclude=proc)
-            for _fq, (_gz_path, _fh) in pigz_outputs.items():
-                if _fq == fq:
-                    continue
-                try:
-                    _fh.close()
-                except Exception:
-                    pass
-                try:
-                    if os.path.exists(_gz_path):
-                        os.remove(_gz_path)
-                except OSError:
-                    pass
-            _cleanup_dir(job_output_dir)
-            result_queue.put((sra_path, [], False, t_fasterq_start, t_fasterq_done, t_pigz_start, 0.0))
-            _decrement_shared_counter(active_pigz_jobs)
-            return
-
-    t_pigz_done = time.time()
-    logging.info(
-        f"[Converter #{job_id}] Completed {accession}: "
-        f"{[os.path.basename(f) for f in fastq_gz_files]} "
-        f"(written directly to slow tier: {compressed_output_dir})"
-    )
-    if removed_fastq_bytes_job > 0:
-        logging.info(
-            f"[Converter #{job_id}] Compression cleanup reclaimed "
-            f"{_human_bytes(removed_fastq_bytes_job)} for {accession}"
-        )
-    # Clean up the now-empty per-job fastq staging directory.
-    _cleanup_dir(job_output_dir)
-    result_queue.put((sra_path, fastq_gz_files, True,
-                      t_fasterq_start, t_fasterq_done,
-                      t_pigz_start, t_pigz_done))
-    _decrement_shared_counter(active_pigz_jobs)
-
+                with self._active_pigz_jobs.get_lock():
+                    self._active_pigz_jobs.value -= 1
+                decremented = True
+            except Exception as exc:
+                # Last-resort logging. Even if this raises we don't want to
+                # mask the original exception, so we swallow.
+                logging.error(
+                    f"[Converter #{job_id}] Failed to decrement "
+                    f"_active_pigz_jobs: {exc}"
+                )
 
 #############################
 # Throughput reporter
