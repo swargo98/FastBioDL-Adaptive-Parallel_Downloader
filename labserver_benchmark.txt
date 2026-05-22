@@ -1,0 +1,454 @@
+============================================================
+  Lab-server placement + mover benchmark
+============================================================
+Host:         rsjk8ck44
+Date:         2026-04-16T18:29:39-05:00
+Repo:         /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader
+Python:       /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/venv/bin/python3
+FAST_DIR:     /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage
+SLOW_DIR:     /mnt/storage/benchmark_fast_storage
+DEST_DIR:     /mnt/storage/benchmark_fast_storage/results
+THREADS:      16
+REPS:         3
+CELLS:        all
+METHODS:      shutil_seq,shutil_parallel,cp,filemover
+Accessions:   SRR1313069 (small)  SRR5017128 (medium)  SRR22904253 (large)
+Results:      /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44
+------------------------------------------------------------
+Storage info:
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p2  1.9T  1.2T  648G  64% /
+/dev/sda1       3.6T   63G  3.4T   2% /mnt/storage
+/dev/sda1       3.6T   63G  3.4T   2% /mnt/storage
+------------------------------------------------------------
+Mount / device:
+------------------------------------------------------------
+Block devices (rotational flag: 1=HDD, 0=SSD/NVMe):
+  /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage -> unknown (/dev/unknown)  rotational=unknown
+  /mnt/storage/benchmark_fast_storage -> unknown (/dev/unknown)  rotational=unknown
+  /mnt/storage/benchmark_fast_storage/results -> unknown (/dev/unknown)  rotational=unknown
+------------------------------------------------------------
+/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/sratoolkit.3.1.0-ubuntu64/bin/fasterq-dump
+/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/venv/bin/pigz
+/usr/bin/cp
+============================================================
+
+============================================================
+  Accession: SRR1313069
+============================================================
+[placement_conversion] Starting for SRR1313069 ...
+Tools: {'fasterq-dump': '/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/sratoolkit.3.1.0-ubuntu64/bin/fasterq-dump', 'pigz': '/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/venv/bin/pigz'}
+
+[1] Downloading SRR1313069 to fast tier (/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage) ...
+  /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage/bench_place_SRR1313069/sra/SRR1313069/SRR1313069.sralite.1  (4.31 GB)  in 165.8s
+[1b] Copying SRA to slow tier for SRA-on-slow cells ...
+     staged in 2.1s
+
+[2] Running 3 reps across 8 placement cells: FFF, FFS, FSF, FSS, SFF, SFS, SSF, SSS
+  [2] rep=1/3  cell=FFF ... total=77.5s  fasterq=47.6  pigz=25.2  copy=4.7
+  [3] rep=1/3  cell=FFS ... total=88.8s  fasterq=69.4  pigz=19.4  copy=0.0
+  [4] rep=1/3  cell=FSF ... total=288.9s  fasterq=239.4  pigz=22.0  copy=27.6
+  [5] rep=1/3  cell=FSS ... total=279.7s  fasterq=241.9  pigz=37.9  copy=0.0
+  [6] rep=1/3  cell=SFF ... total=93.5s  fasterq=64.0  pigz=25.0  copy=4.5
+  [7] rep=1/3  cell=SFS ... total=77.1s  fasterq=57.7  pigz=19.4  copy=0.0
+  [8] rep=1/3  cell=SSF ... total=316.6s  fasterq=268.4  pigz=19.3  copy=28.9
+  [9] rep=1/3  cell=SSS ... total=307.3s  fasterq=269.3  pigz=37.9  copy=0.0
+  [10] rep=2/3  cell=FFF ... total=74.1s  fasterq=44.7  pigz=24.8  copy=4.6
+  [11] rep=2/3  cell=FFS ... total=68.7s  fasterq=49.1  pigz=19.5  copy=0.0
+  [12] rep=2/3  cell=FSF ... total=288.0s  fasterq=241.4  pigz=19.2  copy=27.5
+  [13] rep=2/3  cell=FSS ... total=281.6s  fasterq=243.5  pigz=38.1  copy=0.0
+  [14] rep=2/3  cell=SFF ... total=92.1s  fasterq=63.1  pigz=24.4  copy=4.6
+  [15] rep=2/3  cell=SFS ... total=95.7s  fasterq=73.6  pigz=22.1  copy=0.0
+  [16] rep=2/3  cell=SSF ... total=317.0s  fasterq=267.5  pigz=20.1  copy=29.4
+  [17] rep=2/3  cell=SSS ... total=311.0s  fasterq=274.0  pigz=37.0  copy=0.0
+  [18] rep=3/3  cell=FFF ... total=130.0s  fasterq=100.7  pigz=24.8  copy=4.5
+  [19] rep=3/3  cell=FFS ... total=125.2s  fasterq=105.8  pigz=19.4  copy=0.0
+  [20] rep=3/3  cell=FSF ... total=295.5s  fasterq=247.2  pigz=19.7  copy=28.7
+  [21] rep=3/3  cell=FSS ... total=290.5s  fasterq=251.8  pigz=38.7  copy=0.0
+  [22] rep=3/3  cell=SFF ... total=143.3s  fasterq=110.0  pigz=28.6  copy=4.7
+  [23] rep=3/3  cell=SFS ... total=125.3s  fasterq=105.9  pigz=19.5  copy=0.0
+  [24] rep=3/3  cell=SSF ... total=326.3s  fasterq=278.2  pigz=19.7  copy=28.4
+  [25] rep=3/3  cell=SSS ... total=316.1s  fasterq=277.2  pigz=38.8  copy=0.0
+
+===========================================================================
+  PLACEMENT BENCHMARK  --  SRR1313069
+  fast=/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage
+  slow=/mnt/storage/benchmark_fast_storage
+  dest=/mnt/storage/benchmark_fast_storage/results
+===========================================================================
+  cell       total      fasterq         pigz         copy   legacy
+  FFF      93.9s      64.3s      24.9s       4.6s    n/a
+  FFS      94.2s      74.8s      19.4s       0.0s    n/a
+  FSF     290.8s     242.6s      20.3s      27.9s    n/a
+  FSS     283.9s     245.7s      38.2s       0.0s    n/a
+  SFF     109.6s      79.0s      26.0s       4.6s    n/a
+  SFS      99.4s      79.1s      20.3s       0.0s    n/a
+  SSF     319.9s     271.4s      19.7s      28.9s    n/a
+  SSS     311.4s     273.5s      37.9s       0.0s    n/a
+
+  Speedup baseline: SSS  (>1 means other cell faster)
+    SSS_vs_FFF: 3.53x  95%CI=[1.15, 5.92]
+    SSS_vs_FFS: 3.50x  95%CI=[1.01, 6.00]
+    SSS_vs_FSF: 1.07x  95%CI=[1.05, 1.09]
+    SSS_vs_FSS: 1.10x  95%CI=[1.08, 1.12]
+    SSS_vs_SFF: 2.96x  95%CI=[1.34, 4.57]
+    SSS_vs_SFS: 3.25x  95%CI=[1.44, 5.07]
+    SSS_vs_SSF: 0.97x  95%CI=[0.96, 0.99]
+
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44/placement_conversion_SRR1313069.json
+===========================================================================
+
+[placement_mover: nvme -> hdd] Starting for SRR1313069 ...
+WARNING:root:NCBI runinfo attempt 1/5 failed for SRR1313069: HTTPSConnectionPool(host='eutils.ncbi.nlm.nih.gov', port=443): Max retries exceeded with url: /entrez/eutils/efetch.fcgi?db=sra&id=SRR1313069&rettype=runinfo&retmode=text&tool=fastbiodl (Caused by NewConnectionError("HTTPSConnection(host='eutils.ncbi.nlm.nih.gov', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable")); retrying in 1.19s
+WARNING:root:NCBI runinfo attempt 2/5 failed for SRR1313069: HTTPSConnectionPool(host='eutils.ncbi.nlm.nih.gov', port=443): Max retries exceeded with url: /entrez/eutils/efetch.fcgi?db=sra&id=SRR1313069&rettype=runinfo&retmode=text&tool=fastbiodl (Caused by NewConnectionError("HTTPSConnection(host='eutils.ncbi.nlm.nih.gov', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable")); retrying in 2.02s
+WARNING:root:NCBI runinfo attempt 3/5 failed for SRR1313069: HTTPSConnectionPool(host='eutils.ncbi.nlm.nih.gov', port=443): Max retries exceeded with url: /entrez/eutils/efetch.fcgi?db=sra&id=SRR1313069&rettype=runinfo&retmode=text&tool=fastbiodl (Caused by NewConnectionError("HTTPSConnection(host='eutils.ncbi.nlm.nih.gov', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable")); retrying in 4.19s
+WARNING:root:NCBI runinfo attempt 4/5 failed for SRR1313069: HTTPSConnectionPool(host='eutils.ncbi.nlm.nih.gov', port=443): Max retries exceeded with url: /entrez/eutils/efetch.fcgi?db=sra&id=SRR1313069&rettype=runinfo&retmode=text&tool=fastbiodl (Caused by NewConnectionError("HTTPSConnection(host='eutils.ncbi.nlm.nih.gov', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable")); retrying in 8.40s
+
+[1] Downloading SRR1313069 to /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage ...
+  /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage/bench_mover_prep_SRR1313069/sra/SRR1313069/SRR1313069.sralite.1  (4.31 GB)  in 187.6s
+
+[2] Converting SRR1313069 to .fastq.gz (golden copy) ...
+  2 file(s), 9.17 GB  (fasterq=122.7s, pigz=24.1s)
+
+[3] Running 3 reps x 4 methods (/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage -> /mnt/storage/benchmark_fast_storage)
+  rep=1/3  method=shutil_seq       ... 7.4s  1269.7 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 4.4s  2127.6 MB/s  match=True
+  rep=1/3  method=cp               ... 5.9s  1603.6 MB/s  match=True
+  rep=1/3  method=filemover        ... 6.7s  1399.6 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 7.4s  1263.4 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 4.4s  2113.6 MB/s  match=True
+  rep=2/3  method=cp               ... 5.9s  1593.9 MB/s  match=True
+  rep=2/3  method=filemover        ... 6.7s  1404.7 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 7.4s  1267.1 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 4.4s  2117.1 MB/s  match=True
+  rep=3/3  method=cp               ... 6.0s  1570.1 MB/s  match=True
+  rep=3/3  method=filemover        ... 6.7s  1398.0 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR1313069
+  src=/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage
+  dst=/mnt/storage/benchmark_fast_storage
+  payload: 2 file(s), 9.17 GB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=    7.4s  throughput= 1266.8 MB/s  95%CI=[1258.9, 1274.6]
+  shutil_parallel   time=    4.4s  throughput= 2119.4 MB/s  95%CI=[2101.3, 2137.5]
+  cp                time=    5.9s  throughput= 1589.2 MB/s  95%CI=[1546.4, 1632.1]
+  filemover         time=    6.7s  throughput= 1400.8 MB/s  95%CI=[1392.1, 1409.5]
+  speedup shutil_parallel_vs_shutil_seq: 1.67x  95%CI=[1.67, 1.68]
+  speedup cp_vs_shutil_seq: 1.25x  95%CI=[1.22, 1.29]
+  speedup filemover_vs_shutil_seq: 1.11x  95%CI=[1.09, 1.12]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44/placement_mover_nvme2hdd_SRR1313069.json
+===========================================================================
+
+[placement_mover: hdd -> nvme] Starting for SRR1313069 ...
+
+[1] Downloading SRR1313069 to /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage ...
+  /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage/bench_mover_prep_SRR1313069/sra/SRR1313069/SRR1313069.sralite.1  (4.31 GB)  in 0.4s
+
+[2] Converting SRR1313069 to .fastq.gz (golden copy) ...
+  2 file(s), 9.17 GB  (fasterq=112.9s, pigz=24.1s)
+
+[2b] Copying golden set to source tier (/mnt/storage/benchmark_fast_storage) ...
+
+[3] Running 3 reps x 4 methods (/mnt/storage/benchmark_fast_storage -> /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage)
+  rep=1/3  method=shutil_seq       ... 43.5s  216.0 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 43.4s  216.2 MB/s  match=True
+  rep=1/3  method=cp               ... 43.4s  216.2 MB/s  match=True
+  rep=1/3  method=filemover        ... 44.6s  210.6 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 43.6s  215.2 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 43.8s  214.6 MB/s  match=True
+  rep=2/3  method=cp               ... 43.6s  215.5 MB/s  match=True
+  rep=2/3  method=filemover        ... 44.3s  212.1 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 44.1s  213.1 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 43.9s  213.7 MB/s  match=True
+  rep=3/3  method=cp               ... 43.6s  215.3 MB/s  match=True
+  rep=3/3  method=filemover        ... 44.6s  210.7 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR1313069
+  src=/mnt/storage/benchmark_fast_storage
+  dst=/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage
+  payload: 2 file(s), 9.17 GB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=   43.7s  throughput=  214.8 MB/s  95%CI=[211.1, 218.4]
+  shutil_parallel   time=   43.7s  throughput=  214.8 MB/s  95%CI=[211.8, 217.9]
+  cp                time=   43.5s  throughput=  215.7 MB/s  95%CI=[214.5, 216.9]
+  filemover         time=   44.5s  throughput=  211.1 MB/s  95%CI=[209.0, 213.2]
+  speedup shutil_parallel_vs_shutil_seq: 1.00x  95%CI=[0.99, 1.01]
+  speedup cp_vs_shutil_seq: 1.00x  95%CI=[0.99, 1.02]
+  speedup filemover_vs_shutil_seq: 0.98x  95%CI=[0.97, 1.00]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44/placement_mover_hdd2nvme_SRR1313069.json
+===========================================================================
+
+
+============================================================
+  Accession: SRR5017128
+============================================================
+[placement_conversion] Starting for SRR5017128 ...
+Tools: {'fasterq-dump': '/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/sratoolkit.3.1.0-ubuntu64/bin/fasterq-dump', 'pigz': '/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/venv/bin/pigz'}
+
+[1] Downloading SRR5017128 to fast tier (/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage) ...
+  /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage/bench_place_SRR5017128/sra/SRR5017128/SRR5017128.sralite.1  (1.23 GB)  in 132.7s
+[1b] Copying SRA to slow tier for SRA-on-slow cells ...
+     staged in 0.6s
+
+[2] Running 3 reps across 8 placement cells: FFF, FFS, FSF, FSS, SFF, SFS, SSF, SSS
+  [2] rep=1/3  cell=FFF ... total=25.5s  fasterq=16.1  pigz=8.0  copy=1.4
+  [3] rep=1/3  cell=FFS ... total=20.7s  fasterq=14.9  pigz=5.8  copy=0.0
+  [4] rep=1/3  cell=FSF ... total=22.1s  fasterq=15.1  pigz=5.7  copy=1.3
+  [5] rep=1/3  cell=FSS ... total=22.4s  fasterq=15.1  pigz=7.3  copy=0.0
+  [6] rep=1/3  cell=SFF ... total=29.8s  fasterq=20.9  pigz=7.6  copy=1.3
+  [7] rep=1/3  cell=SFS ... total=25.2s  fasterq=19.5  pigz=5.8  copy=0.0
+  [8] rep=1/3  cell=SSF ... total=26.7s  fasterq=19.7  pigz=5.7  copy=1.3
+  [9] rep=1/3  cell=SSS ... total=27.1s  fasterq=19.9  pigz=7.2  copy=0.0
+  [10] rep=2/3  cell=FFF ... total=24.2s  fasterq=15.6  pigz=7.3  copy=1.3
+  [11] rep=2/3  cell=FFS ... total=20.7s  fasterq=15.0  pigz=5.8  copy=0.0
+  [12] rep=2/3  cell=FSF ... total=22.1s  fasterq=15.1  pigz=5.8  copy=1.3
+  [13] rep=2/3  cell=FSS ... total=22.2s  fasterq=14.9  pigz=7.2  copy=0.0
+  [14] rep=2/3  cell=SFF ... total=28.9s  fasterq=20.2  pigz=7.4  copy=1.3
+  [15] rep=2/3  cell=SFS ... total=25.4s  fasterq=19.7  pigz=5.7  copy=0.0
+  [16] rep=2/3  cell=SSF ... total=27.3s  fasterq=20.3  pigz=5.8  copy=1.3
+  [17] rep=2/3  cell=SSS ... total=27.1s  fasterq=19.8  pigz=7.2  copy=0.0
+  [18] rep=3/3  cell=FFF ... total=24.5s  fasterq=15.7  pigz=7.5  copy=1.3
+  [19] rep=3/3  cell=FFS ... total=20.8s  fasterq=15.0  pigz=5.8  copy=0.0
+  [20] rep=3/3  cell=FSF ... total=22.0s  fasterq=14.9  pigz=5.8  copy=1.3
+  [21] rep=3/3  cell=FSS ... total=22.2s  fasterq=15.0  pigz=7.3  copy=0.0
+  [22] rep=3/3  cell=SFF ... total=29.3s  fasterq=20.4  pigz=7.6  copy=1.3
+  [23] rep=3/3  cell=SFS ... total=25.9s  fasterq=20.2  pigz=5.7  copy=0.0
+  [24] rep=3/3  cell=SSF ... total=27.0s  fasterq=19.9  pigz=5.8  copy=1.3
+  [25] rep=3/3  cell=SSS ... total=27.7s  fasterq=20.5  pigz=7.2  copy=0.0
+
+===========================================================================
+  PLACEMENT BENCHMARK  --  SRR5017128
+  fast=/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage
+  slow=/mnt/storage/benchmark_fast_storage
+  dest=/mnt/storage/benchmark_fast_storage/results
+===========================================================================
+  cell       total      fasterq         pigz         copy   legacy
+  FFF      24.7s      15.8s       7.6s       1.3s    n/a
+  FFS      20.7s      15.0s       5.8s       0.0s    n/a
+  FSF      22.1s      15.0s       5.8s       1.3s    n/a
+  FSS      22.3s      15.0s       7.2s       0.0s    n/a
+  SFF      29.3s      20.5s       7.5s       1.3s    n/a
+  SFS      25.5s      19.8s       5.7s       0.0s    n/a
+  SSF      27.0s      19.9s       5.8s       1.3s    n/a
+  SSS      27.3s      20.1s       7.2s       0.0s    n/a
+
+  Speedup baseline: SSS  (>1 means other cell faster)
+    SSS_vs_FFF: 1.10x  95%CI=[1.02, 1.19]
+    SSS_vs_FFS: 1.32x  95%CI=[1.28, 1.36]
+    SSS_vs_FSF: 1.24x  95%CI=[1.19, 1.29]
+    SSS_vs_FSS: 1.23x  95%CI=[1.18, 1.27]
+    SSS_vs_SFF: 0.93x  95%CI=[0.88, 0.98]
+    SSS_vs_SFS: 1.07x  95%CI=[1.06, 1.08]
+    SSS_vs_SSF: 1.01x  95%CI=[0.96, 1.06]
+
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44/placement_conversion_SRR5017128.json
+===========================================================================
+
+[placement_mover: nvme -> hdd] Starting for SRR5017128 ...
+
+[1] Downloading SRR5017128 to /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage ...
+  /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage/bench_mover_prep_SRR5017128/sra/SRR5017128/SRR5017128.sralite.1  (1.23 GB)  in 147.5s
+
+[2] Converting SRR5017128 to .fastq.gz (golden copy) ...
+  1 file(s), 2.63 GB  (fasterq=14.8s, pigz=7.2s)
+
+[3] Running 3 reps x 4 methods (/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage -> /mnt/storage/benchmark_fast_storage)
+  rep=1/3  method=shutil_seq       ... 2.2s  1243.3 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 2.2s  1241.1 MB/s  match=True
+  rep=1/3  method=cp               ... 1.8s  1533.6 MB/s  match=True
+  rep=1/3  method=filemover        ... 3.5s  762.4 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 2.2s  1207.3 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 2.0s  1323.6 MB/s  match=True
+  rep=2/3  method=cp               ... 1.8s  1522.9 MB/s  match=True
+  rep=2/3  method=filemover        ... 3.5s  762.9 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 2.1s  1263.2 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 2.2s  1252.1 MB/s  match=True
+  rep=3/3  method=cp               ... 1.7s  1549.1 MB/s  match=True
+  rep=3/3  method=filemover        ... 3.5s  762.7 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR5017128
+  src=/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage
+  dst=/mnt/storage/benchmark_fast_storage
+  payload: 1 file(s), 2.63 GB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=    2.2s  throughput= 1237.9 MB/s  95%CI=[1167.5, 1308.3]
+  shutil_parallel   time=    2.1s  throughput= 1272.3 MB/s  95%CI=[1161.1, 1383.4]
+  cp                time=    1.8s  throughput= 1535.2 MB/s  95%CI=[1502.5, 1567.9]
+  filemover         time=    3.5s  throughput=  762.7 MB/s  95%CI=[762.0, 763.3]
+  speedup shutil_parallel_vs_shutil_seq: 1.03x  95%CI=[0.88, 1.18]
+  speedup cp_vs_shutil_seq: 1.24x  95%CI=[1.19, 1.29]
+  speedup filemover_vs_shutil_seq: 0.62x  95%CI=[0.58, 0.65]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44/placement_mover_nvme2hdd_SRR5017128.json
+===========================================================================
+
+[placement_mover: hdd -> nvme] Starting for SRR5017128 ...
+WARNING:root:Could not determine file size for https://sra-downloadb.be-md.ncbi.nlm.nih.gov/sos5/sra-pub-zq-14/SRR005/017/SRR5017128.sralite.1, attempting direct download
+WARNING:root:Single-connection attempt 1/3 failed: Cannot connect to host sra-downloadb.be-md.ncbi.nlm.nih.gov:443 ssl:default [Network is unreachable]
+WARNING:root:Single-connection attempt 2/3 failed: Cannot connect to host sra-downloadb.be-md.ncbi.nlm.nih.gov:443 ssl:default [Network is unreachable]
+WARNING:root:Single-connection attempt 3/3 failed: Cannot connect to host sra-downloadb.be-md.ncbi.nlm.nih.gov:443 ssl:default [Network is unreachable]
+ERROR:root:[Download #0] Failed SRR5017128.sralite.1: Cannot connect to host sra-downloadb.be-md.ncbi.nlm.nih.gov:443 ssl:default [Network is unreachable]
+Download failed: Download failed for SRR5017128
+
+[1] Downloading SRR5017128 to /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage ...
+[WARN] placement_mover hdd->nvme failed for SRR5017128 (rc=1)
+
+
+============================================================
+  Accession: SRR22904253
+============================================================
+[placement_conversion] Starting for SRR22904253 ...
+Tools: {'fasterq-dump': '/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/sratoolkit.3.1.0-ubuntu64/bin/fasterq-dump', 'pigz': '/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/venv/bin/pigz'}
+
+[1] Downloading SRR22904253 to fast tier (/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage) ...
+  /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage/bench_place_SRR22904253/sra/SRR22904253/SRR22904253.1  (56.87 KB)  in 0.3s
+[1b] Copying SRA to slow tier for SRA-on-slow cells ...
+     staged in 0.0s
+
+[2] Running 3 reps across 8 placement cells: FFF, FFS, FSF, FSS, SFF, SFS, SSF, SSS
+  [2] rep=1/3  cell=FFF ... total=1.2s  fasterq=1.2  pigz=0.0  copy=0.0
+  [3] rep=1/3  cell=FFS ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [4] rep=1/3  cell=FSF ... total=1.2s  fasterq=1.2  pigz=0.0  copy=0.0
+  [5] rep=1/3  cell=FSS ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [6] rep=1/3  cell=SFF ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [7] rep=1/3  cell=SFS ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [8] rep=1/3  cell=SSF ... total=1.2s  fasterq=1.2  pigz=0.0  copy=0.0
+  [9] rep=1/3  cell=SSS ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [10] rep=2/3  cell=FFF ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [11] rep=2/3  cell=FFS ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [12] rep=2/3  cell=FSF ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [13] rep=2/3  cell=FSS ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [14] rep=2/3  cell=SFF ... total=1.2s  fasterq=1.2  pigz=0.0  copy=0.0
+  [15] rep=2/3  cell=SFS ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [16] rep=2/3  cell=SSF ... total=1.2s  fasterq=1.2  pigz=0.0  copy=0.0
+  [17] rep=2/3  cell=SSS ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [18] rep=3/3  cell=FFF ... total=1.2s  fasterq=1.2  pigz=0.0  copy=0.0
+  [19] rep=3/3  cell=FFS ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [20] rep=3/3  cell=FSF ... total=1.2s  fasterq=1.2  pigz=0.0  copy=0.0
+  [21] rep=3/3  cell=FSS ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [22] rep=3/3  cell=SFF ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [23] rep=3/3  cell=SFS ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [24] rep=3/3  cell=SSF ... total=1.2s  fasterq=1.1  pigz=0.0  copy=0.0
+  [25] rep=3/3  cell=SSS ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+
+===========================================================================
+  PLACEMENT BENCHMARK  --  SRR22904253
+  fast=/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage
+  slow=/mnt/storage/benchmark_fast_storage
+  dest=/mnt/storage/benchmark_fast_storage/results
+===========================================================================
+  cell       total      fasterq         pigz         copy   legacy
+  FFF       1.2s       1.2s       0.0s       0.0s    n/a
+  FFS       1.2s       1.1s       0.0s       0.0s    n/a
+  FSF       1.2s       1.1s       0.0s       0.0s    n/a
+  FSS       1.2s       1.1s       0.0s       0.0s    n/a
+  SFF       1.2s       1.1s       0.0s       0.0s    n/a
+  SFS       1.2s       1.1s       0.0s       0.0s    n/a
+  SSF       1.2s       1.2s       0.0s       0.0s    n/a
+  SSS       1.1s       1.1s       0.0s       0.0s    n/a
+
+  Speedup baseline: SSS  (>1 means other cell faster)
+    SSS_vs_FFF: 0.99x  95%CI=[0.97, 1.02]
+    SSS_vs_FFS: 1.00x  95%CI=[0.99, 1.00]
+    SSS_vs_FSF: 1.00x  95%CI=[0.99, 1.00]
+    SSS_vs_FSS: 1.00x  95%CI=[0.99, 1.01]
+    SSS_vs_SFF: 1.00x  95%CI=[0.99, 1.00]
+    SSS_vs_SFS: 1.00x  95%CI=[1.00, 1.00]
+    SSS_vs_SSF: 0.99x  95%CI=[0.98, 1.00]
+
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44/placement_conversion_SRR22904253.json
+===========================================================================
+
+[placement_mover: nvme -> hdd] Starting for SRR22904253 ...
+
+[1] Downloading SRR22904253 to /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage ...
+  /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage/bench_mover_prep_SRR22904253/sra/SRR22904253/SRR22904253.1  (56.87 KB)  in 0.3s
+
+[2] Converting SRR22904253 to .fastq.gz (golden copy) ...
+  1 file(s), 30.53 KB  (fasterq=1.1s, pigz=0.0s)
+
+[3] Running 3 reps x 4 methods (/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage -> /mnt/storage/benchmark_fast_storage)
+  rep=1/3  method=shutil_seq       ... 0.0s  32.5 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 0.0s  19.0 MB/s  match=True
+  rep=1/3  method=cp               ... 0.0s  3.0 MB/s  match=True
+  rep=1/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 0.0s  33.9 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 0.0s  28.1 MB/s  match=True
+  rep=2/3  method=cp               ... 0.0s  6.0 MB/s  match=True
+  rep=2/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 0.0s  85.7 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 0.0s  46.6 MB/s  match=True
+  rep=3/3  method=cp               ... 0.0s  5.4 MB/s  match=True
+  rep=3/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR22904253
+  src=/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage
+  dst=/mnt/storage/benchmark_fast_storage
+  payload: 1 file(s), 30.53 KB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=    0.0s  throughput=   50.7 MB/s  95%CI=[-24.6, 126.0]
+  shutil_parallel   time=    0.0s  throughput=   31.2 MB/s  95%CI=[-3.7, 66.2]
+  cp                time=    0.0s  throughput=    4.8 MB/s  95%CI=[0.8, 8.7]
+  filemover         time=    0.5s  throughput=    0.1 MB/s  95%CI=[0.1, 0.1]
+  speedup shutil_parallel_vs_shutil_seq: 0.50x  95%CI=[-0.74, 1.74]
+  speedup cp_vs_shutil_seq: 0.10x  95%CI=[-0.15, 0.35]
+  speedup filemover_vs_shutil_seq: 0.00x  95%CI=[-0.00, 0.00]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44/placement_mover_nvme2hdd_SRR22904253.json
+===========================================================================
+
+[placement_mover: hdd -> nvme] Starting for SRR22904253 ...
+
+[1] Downloading SRR22904253 to /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage ...
+  /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage/bench_mover_prep_SRR22904253/sra/SRR22904253/SRR22904253.1  (56.87 KB)  in 0.2s
+
+[2] Converting SRR22904253 to .fastq.gz (golden copy) ...
+  1 file(s), 30.53 KB  (fasterq=1.1s, pigz=0.0s)
+
+[2b] Copying golden set to source tier (/mnt/storage/benchmark_fast_storage) ...
+
+[3] Running 3 reps x 4 methods (/mnt/storage/benchmark_fast_storage -> /home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage)
+  rep=1/3  method=shutil_seq       ... 0.0s  39.6 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 0.0s  18.0 MB/s  match=True
+  rep=1/3  method=cp               ... 0.0s  4.3 MB/s  match=True
+  rep=1/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 0.0s  31.1 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 0.0s  15.6 MB/s  match=True
+  rep=2/3  method=cp               ... 0.0s  4.5 MB/s  match=True
+  rep=2/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 0.0s  50.3 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 0.0s  14.7 MB/s  match=True
+  rep=3/3  method=cp               ... 0.0s  5.2 MB/s  match=True
+  rep=3/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR22904253
+  src=/mnt/storage/benchmark_fast_storage
+  dst=/home/rs75c/FastBioDL-Adaptive-Parallel_Downloader/benchmark_slow_storage
+  payload: 1 file(s), 30.53 KB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=    0.0s  throughput=   40.3 MB/s  95%CI=[16.4, 64.3]
+  shutil_parallel   time=    0.0s  throughput=   16.1 MB/s  95%CI=[11.8, 20.4]
+  cp                time=    0.0s  throughput=    4.7 MB/s  95%CI=[3.5, 5.9]
+  filemover         time=    0.5s  throughput=    0.1 MB/s  95%CI=[0.1, 0.1]
+  speedup shutil_parallel_vs_shutil_seq: 0.50x  95%CI=[0.50, 0.50]
+  speedup cp_vs_shutil_seq: 0.15x  95%CI=[0.12, 0.18]
+  speedup filemover_vs_shutil_seq: 0.00x  95%CI=[0.00, 0.00]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44/placement_mover_hdd2nvme_SRR22904253.json
+===========================================================================
+
+
+============================================================
+  All benchmarks complete.  exit=1
+  Results: /home/rs75c/benchmark_results_labserver/placement_20260416_182939_rsjk8ck44
+============================================================

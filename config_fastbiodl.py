@@ -32,7 +32,7 @@ configurations = {
     },
     "thread_limit": 15,
     "max_conversion_jobs": 1,
-    "max_pigz_jobs": 1,
+    "max_pigz_jobs": 3,
     "conversion_threads": 8,
     "conversion_required_factor": 10.0,
     "conversion_reserve_factor": 10.5,

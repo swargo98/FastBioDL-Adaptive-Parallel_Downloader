@@ -1,0 +1,475 @@
+============================================================
+  FABRIC placement + mover benchmark
+============================================================
+Host:         node1
+Date:         2026-04-16T22:58:12+00:00
+Repo:         /home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+Python:       /home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader/venv/bin/python3
+FAST_DIR:     /mnt/raid0/benchmark/fast
+SLOW_DIR:     /home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+DEST_DIR:     /home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader/results
+THREADS:      8
+REPS:         3
+CELLS:        all
+METHODS:      shutil_seq,shutil_parallel,cp,filemover
+Accessions:   SRR1313069 (small)  SRR5017128 (medium)  SRR22904253 (large)
+Results:      /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1
+------------------------------------------------------------
+Storage info:
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/md0        1.8T   23G  1.8T   2% /mnt/raid0
+/dev/vda1       969G   68G  902G   7% /
+/dev/vda1       969G   68G  902G   7% /
+------------------------------------------------------------
+Mount points:
+------------------------------------------------------------
+/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader/sratoolkit.3.1.0-ubuntu64/bin/fasterq-dump
+/usr/bin/pigz
+/usr/bin/cp
+============================================================
+
+============================================================
+  Accession: SRR1313069
+============================================================
+[placement_conversion] Starting for SRR1313069 ...
+Tools: {'fasterq-dump': '/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader/sratoolkit.3.1.0-ubuntu64/bin/fasterq-dump', 'pigz': '/usr/bin/pigz'}
+
+[1] Downloading SRR1313069 to fast tier (/mnt/raid0/benchmark/fast) ...
+  /mnt/raid0/benchmark/fast/bench_place_SRR1313069/sra/SRR1313069/SRR1313069.sralite.1  (4.31 GB)  in 5.3s
+
+[2] Running 3 reps across 8 placement cells: FFF, FFS, FSF, FSS, SFF, SFS, SSF, SSS
+  [2] rep=1/3  cell=FFF ... total=145.4s  fasterq=66.1  pigz=66.8  copy=12.5
+  [3] rep=1/3  cell=FFS ... total=141.5s  fasterq=68.4  pigz=73.1  copy=0.0
+  [4] rep=1/3  cell=FSF ... total=354.6s  fasterq=221.7  pigz=118.6  copy=14.3
+  [5] rep=1/3  cell=FSS ... total=329.6s  fasterq=223.1  pigz=106.4  copy=0.0
+  [6] rep=1/3  cell=SFF ... total=148.2s  fasterq=71.3  pigz=65.3  copy=11.5
+  [7] rep=1/3  cell=SFS ... total=140.7s  fasterq=70.2  pigz=70.5  copy=0.0
+  [8] rep=1/3  cell=SSF ... total=352.8s  fasterq=221.8  pigz=118.9  copy=12.1
+  [9] rep=1/3  cell=SSS ... total=376.0s  fasterq=259.3  pigz=116.7  copy=0.0
+  [10] rep=2/3  cell=FFF ... total=145.8s  fasterq=69.1  pigz=65.5  copy=11.2
+  [11] rep=2/3  cell=FFS ... total=147.2s  fasterq=67.8  pigz=79.3  copy=0.0
+  [12] rep=2/3  cell=FSF ... total=360.8s  fasterq=227.1  pigz=121.6  copy=12.1
+  [13] rep=2/3  cell=FSS ... total=336.1s  fasterq=221.4  pigz=114.6  copy=0.0
+  [14] rep=2/3  cell=SFF ... total=150.6s  fasterq=70.5  pigz=68.7  copy=11.4
+  [15] rep=2/3  cell=SFS ... total=140.7s  fasterq=67.1  pigz=73.7  copy=0.0
+  [16] rep=2/3  cell=SSF ... total=321.8s  fasterq=216.7  pigz=93.4  copy=11.7
+  [17] rep=2/3  cell=SSS ... total=322.4s  fasterq=233.8  pigz=88.6  copy=0.0
+  [18] rep=3/3  cell=FFF ... total=141.7s  fasterq=67.7  pigz=63.6  copy=10.4
+  [19] rep=3/3  cell=FFS ... total=136.1s  fasterq=66.4  pigz=69.6  copy=0.0
+  [20] rep=3/3  cell=FSF ... total=363.4s  fasterq=231.7  pigz=119.4  copy=12.3
+  [21] rep=3/3  cell=FSS ... total=351.7s  fasterq=244.6  pigz=107.0  copy=0.0
+  [22] rep=3/3  cell=SFF ... total=151.3s  fasterq=72.0  pigz=66.7  copy=12.6
+  [23] rep=3/3  cell=SFS ... total=136.2s  fasterq=67.9  pigz=68.3  copy=0.0
+  [24] rep=3/3  cell=SSF ... total=355.9s  fasterq=234.2  pigz=110.5  copy=11.2
+  [25] rep=3/3  cell=SSS ... total=317.4s  fasterq=224.2  pigz=93.1  copy=0.0
+
+===========================================================================
+  PLACEMENT BENCHMARK  --  SRR1313069
+  fast=/mnt/raid0/benchmark/fast
+  slow=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+  dest=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader/results
+===========================================================================
+  cell       total      fasterq         pigz         copy   legacy
+  FFF     144.3s      67.6s      65.3s      11.4s    n/a
+  FFS     141.6s      67.6s      74.0s       0.0s    n/a
+  FSF     359.6s     226.8s     119.9s      12.9s    n/a
+  FSS     339.1s     229.7s     109.4s       0.0s    n/a
+  SFF     150.1s      71.3s      66.9s      11.8s    n/a
+  SFS     139.2s      68.4s      70.8s       0.0s    n/a
+  SSF     343.5s     224.2s     107.6s      11.7s    n/a
+  SSS     338.6s     239.1s      99.5s       0.0s    n/a
+
+  Speedup baseline: SSS  (>1 means other cell faster)
+    SSS_vs_FFF: 2.35x  95%CI=[1.83, 2.86]
+    SSS_vs_FFS: 2.39x  95%CI=[1.80, 2.99]
+    SSS_vs_FSF: 0.94x  95%CI=[0.69, 1.20]
+    SSS_vs_FSS: 1.00x  95%CI=[0.69, 1.31]
+    SSS_vs_SFF: 2.26x  95%CI=[1.66, 2.86]
+    SSS_vs_SFS: 2.43x  95%CI=[1.91, 2.95]
+    SSS_vs_SSF: 0.99x  95%CI=[0.77, 1.21]
+
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1/placement_conversion_SRR1313069.json
+===========================================================================
+
+[placement_mover: fast -> slow] Starting for SRR1313069 ...
+
+[1] Downloading SRR1313069 to /mnt/raid0/benchmark/fast ...
+  /mnt/raid0/benchmark/fast/bench_mover_prep_SRR1313069/sra/SRR1313069/SRR1313069.sralite.1  (4.31 GB)  in 46.5s
+
+[2] Converting SRR1313069 to .fastq.gz (golden copy) ...
+  2 file(s), 9.17 GB  (fasterq=67.6s, pigz=63.3s)
+
+[3] Running 3 reps x 4 methods (/mnt/raid0/benchmark/fast -> /home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader)
+  rep=1/3  method=shutil_seq       ... 12.6s  746.8 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 8.5s  1103.6 MB/s  match=True
+  rep=1/3  method=cp               ... 14.3s  657.4 MB/s  match=True
+  rep=1/3  method=filemover        ... 9.1s  1029.9 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 14.6s  641.9 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 9.1s  1027.1 MB/s  match=True
+  rep=2/3  method=cp               ... 14.3s  658.7 MB/s  match=True
+  rep=2/3  method=filemover        ... 9.5s  991.9 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 13.4s  701.5 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 9.2s  1018.2 MB/s  match=True
+  rep=3/3  method=cp               ... 14.3s  654.4 MB/s  match=True
+  rep=3/3  method=filemover        ... 11.7s  805.6 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR1313069
+  src=/mnt/raid0/benchmark/fast
+  dst=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+  payload: 2 file(s), 9.17 GB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=   13.5s  throughput=  696.7 MB/s  95%CI=[566.1, 827.3]
+  shutil_parallel   time=    9.0s  throughput= 1049.6 MB/s  95%CI=[933.0, 1166.3]
+  cp                time=   14.3s  throughput=  656.9 MB/s  95%CI=[651.4, 662.3]
+  filemover         time=   10.1s  throughput=  942.5 MB/s  95%CI=[644.2, 1240.7]
+  speedup shutil_parallel_vs_shutil_seq: 1.51x  95%CI=[1.31, 1.71]
+  speedup cp_vs_shutil_seq: 0.95x  95%CI=[0.76, 1.13]
+  speedup filemover_vs_shutil_seq: 1.36x  95%CI=[0.86, 1.85]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1/placement_mover_f2s_SRR1313069.json
+===========================================================================
+
+[placement_mover: slow -> fast] Starting for SRR1313069 ...
+WARNING:root:NCBI runinfo attempt 1/5 failed for SRR1313069: HTTPSConnectionPool(host='eutils.ncbi.nlm.nih.gov', port=443): Max retries exceeded with url: /entrez/eutils/efetch.fcgi?db=sra&id=SRR1313069&rettype=runinfo&retmode=text&tool=fastbiodl (Caused by NewConnectionError("HTTPSConnection(host='eutils.ncbi.nlm.nih.gov', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable")); retrying in 1.14s
+
+[1] Downloading SRR1313069 to /mnt/raid0/benchmark/fast ...
+  /mnt/raid0/benchmark/fast/bench_mover_prep_SRR1313069/sra/SRR1313069/SRR1313069.sralite.1  (4.31 GB)  in 5.3s
+
+[2] Converting SRR1313069 to .fastq.gz (golden copy) ...
+  2 file(s), 9.17 GB  (fasterq=68.0s, pigz=64.0s)
+
+[2b] Copying golden set to source tier (/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader) ...
+
+[3] Running 3 reps x 4 methods (/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader -> /mnt/raid0/benchmark/fast)
+  rep=1/3  method=shutil_seq       ... 67.6s  138.9 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 51.2s  183.2 MB/s  match=True
+  rep=1/3  method=cp               ... 53.4s  175.9 MB/s  match=True
+  rep=1/3  method=filemover        ... 33.3s  281.9 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 62.0s  151.4 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 44.7s  210.0 MB/s  match=True
+  rep=2/3  method=cp               ... 47.0s  199.9 MB/s  match=True
+  rep=2/3  method=filemover        ... 28.1s  333.8 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 50.7s  185.3 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 37.9s  247.8 MB/s  match=True
+  rep=3/3  method=cp               ... 50.7s  185.2 MB/s  match=True
+  rep=3/3  method=filemover        ... 35.3s  266.3 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR1313069
+  src=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+  dst=/mnt/raid0/benchmark/fast
+  payload: 2 file(s), 9.17 GB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=   60.1s  throughput=  158.5 MB/s  95%CI=[98.9, 218.1]
+  shutil_parallel   time=   44.6s  throughput=  213.7 MB/s  95%CI=[133.1, 294.3]
+  cp                time=   50.3s  throughput=  187.0 MB/s  95%CI=[157.0, 217.1]
+  filemover         time=   32.2s  throughput=  294.0 MB/s  95%CI=[206.1, 381.8]
+  speedup shutil_parallel_vs_shutil_seq: 1.35x  95%CI=[1.26, 1.44]
+  speedup cp_vs_shutil_seq: 1.20x  95%CI=[0.77, 1.62]
+  speedup filemover_vs_shutil_seq: 1.89x  95%CI=[0.89, 2.89]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1/placement_mover_s2f_SRR1313069.json
+===========================================================================
+
+
+============================================================
+  Accession: SRR5017128
+============================================================
+[placement_conversion] Starting for SRR5017128 ...
+Tools: {'fasterq-dump': '/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader/sratoolkit.3.1.0-ubuntu64/bin/fasterq-dump', 'pigz': '/usr/bin/pigz'}
+
+[1] Downloading SRR5017128 to fast tier (/mnt/raid0/benchmark/fast) ...
+  /mnt/raid0/benchmark/fast/bench_place_SRR5017128/sra/SRR5017128/SRR5017128.sralite.1  (1.23 GB)  in 36.7s
+[1b] Copying SRA to slow tier for SRA-on-slow cells ...
+     staged in 1.3s
+
+[2] Running 3 reps across 8 placement cells: FFF, FFS, FSF, FSS, SFF, SFS, SSF, SSS
+  [2] rep=1/3  cell=FFF ... total=48.4s  fasterq=28.2  pigz=17.4  copy=2.8
+  [3] rep=1/3  cell=FFS ... total=44.6s  fasterq=27.0  pigz=17.6  copy=0.0
+  [4] rep=1/3  cell=FSF ... total=66.4s  fasterq=44.4  pigz=19.3  copy=2.7
+  [5] rep=1/3  cell=FSS ... total=69.3s  fasterq=49.0  pigz=20.3  copy=0.0
+  [6] rep=1/3  cell=SFF ... total=48.4s  fasterq=27.6  pigz=18.0  copy=2.9
+  [7] rep=1/3  cell=SFS ... total=45.2s  fasterq=27.5  pigz=17.7  copy=0.0
+  [8] rep=1/3  cell=SSF ... total=58.9s  fasterq=36.3  pigz=19.7  copy=2.9
+  [9] rep=1/3  cell=SSS ... total=65.8s  fasterq=44.8  pigz=21.1  copy=0.0
+  [10] rep=2/3  cell=FFF ... total=47.8s  fasterq=26.4  pigz=18.1  copy=3.2
+  [11] rep=2/3  cell=FFS ... total=42.2s  fasterq=24.6  pigz=17.6  copy=0.0
+  [12] rep=2/3  cell=FSF ... total=59.8s  fasterq=40.8  pigz=16.2  copy=2.7
+  [13] rep=2/3  cell=FSS ... total=57.8s  fasterq=37.9  pigz=19.9  copy=0.0
+  [14] rep=2/3  cell=SFF ... total=46.8s  fasterq=25.5  pigz=18.2  copy=3.1
+  [15] rep=2/3  cell=SFS ... total=42.6s  fasterq=24.4  pigz=18.2  copy=0.0
+  [16] rep=2/3  cell=SSF ... total=65.0s  fasterq=43.5  pigz=18.8  copy=2.7
+  [17] rep=2/3  cell=SSS ... total=65.3s  fasterq=44.3  pigz=21.0  copy=0.0
+  [18] rep=3/3  cell=FFF ... total=47.7s  fasterq=25.9  pigz=18.6  copy=3.1
+  [19] rep=3/3  cell=FFS ... total=42.6s  fasterq=24.5  pigz=18.2  copy=0.0
+  [20] rep=3/3  cell=FSF ... total=59.7s  fasterq=39.9  pigz=17.1  copy=2.7
+  [21] rep=3/3  cell=FSS ... total=59.2s  fasterq=39.8  pigz=19.3  copy=0.0
+  [22] rep=3/3  cell=SFF ... total=42.6s  fasterq=22.5  pigz=17.1  copy=3.0
+  [23] rep=3/3  cell=SFS ... total=45.3s  fasterq=27.9  pigz=17.5  copy=0.0
+  [24] rep=3/3  cell=SSF ... total=63.1s  fasterq=43.1  pigz=17.1  copy=2.9
+  [25] rep=3/3  cell=SSS ... total=58.6s  fasterq=38.8  pigz=19.8  copy=0.0
+
+===========================================================================
+  PLACEMENT BENCHMARK  --  SRR5017128
+  fast=/mnt/raid0/benchmark/fast
+  slow=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+  dest=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader/results
+===========================================================================
+  cell       total      fasterq         pigz         copy   legacy
+  FFF      47.9s      26.9s      18.0s       3.0s    n/a
+  FFS      43.2s      25.4s      17.8s       0.0s    n/a
+  FSF      62.0s      41.7s      17.6s       2.7s    n/a
+  FSS      62.1s      42.3s      19.8s       0.0s    n/a
+  SFF      45.9s      25.2s      17.8s       3.0s    n/a
+  SFS      44.4s      26.6s      17.8s       0.0s    n/a
+  SSF      62.3s      41.0s      18.5s       2.8s    n/a
+  SSS      63.2s      42.6s      20.6s       0.0s    n/a
+
+  Speedup baseline: SSS  (>1 means other cell faster)
+    SSS_vs_FFF: 1.32x  95%CI=[1.13, 1.51]
+    SSS_vs_FFS: 1.47x  95%CI=[1.25, 1.68]
+    SSS_vs_FSF: 1.02x  95%CI=[0.87, 1.17]
+    SSS_vs_FSS: 1.02x  95%CI=[0.79, 1.26]
+    SSS_vs_SFF: 1.38x  95%CI=[1.33, 1.42]
+    SSS_vs_SFS: 1.43x  95%CI=[1.12, 1.73]
+    SSS_vs_SSF: 1.02x  95%CI=[0.78, 1.25]
+
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1/placement_conversion_SRR5017128.json
+===========================================================================
+
+[placement_mover: fast -> slow] Starting for SRR5017128 ...
+
+[1] Downloading SRR5017128 to /mnt/raid0/benchmark/fast ...
+  /mnt/raid0/benchmark/fast/bench_mover_prep_SRR5017128/sra/SRR5017128/SRR5017128.sralite.1  (1.23 GB)  in 36.4s
+
+[2] Converting SRR5017128 to .fastq.gz (golden copy) ...
+  1 file(s), 2.63 GB  (fasterq=25.8s, pigz=17.7s)
+
+[3] Running 3 reps x 4 methods (/mnt/raid0/benchmark/fast -> /home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader)
+  rep=1/3  method=shutil_seq       ... 3.5s  769.9 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 4.1s  662.2 MB/s  match=True
+  rep=1/3  method=cp               ... 3.6s  753.5 MB/s  match=True
+  rep=1/3  method=filemover        ... 4.8s  564.4 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 3.6s  759.4 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 4.1s  651.3 MB/s  match=True
+  rep=2/3  method=cp               ... 4.0s  667.8 MB/s  match=True
+  rep=2/3  method=filemover        ... 4.7s  576.0 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 3.5s  774.0 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 3.5s  765.7 MB/s  match=True
+  rep=3/3  method=cp               ... 4.2s  638.1 MB/s  match=True
+  rep=3/3  method=filemover        ... 4.0s  668.8 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR5017128
+  src=/mnt/raid0/benchmark/fast
+  dst=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+  payload: 1 file(s), 2.63 GB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=    3.5s  throughput=  767.8 MB/s  95%CI=[749.0, 786.5]
+  shutil_parallel   time=    3.9s  throughput=  693.1 MB/s  95%CI=[536.2, 850.0]
+  cp                time=    3.9s  throughput=  686.5 MB/s  95%CI=[537.6, 835.4]
+  filemover         time=    4.5s  throughput=  603.1 MB/s  95%CI=[460.9, 745.3]
+  speedup shutil_parallel_vs_shutil_seq: 0.90x  95%CI=[0.72, 1.09]
+  speedup cp_vs_shutil_seq: 0.89x  95%CI=[0.70, 1.09]
+  speedup filemover_vs_shutil_seq: 0.79x  95%CI=[0.61, 0.96]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1/placement_mover_f2s_SRR5017128.json
+===========================================================================
+
+[placement_mover: slow -> fast] Starting for SRR5017128 ...
+
+[1] Downloading SRR5017128 to /mnt/raid0/benchmark/fast ...
+  /mnt/raid0/benchmark/fast/bench_mover_prep_SRR5017128/sra/SRR5017128/SRR5017128.sralite.1  (1.23 GB)  in 5.2s
+
+[2] Converting SRR5017128 to .fastq.gz (golden copy) ...
+  1 file(s), 2.63 GB  (fasterq=23.3s, pigz=18.2s)
+
+[2b] Copying golden set to source tier (/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader) ...
+
+[3] Running 3 reps x 4 methods (/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader -> /mnt/raid0/benchmark/fast)
+  rep=1/3  method=shutil_seq       ... 9.2s  293.1 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 13.2s  204.1 MB/s  match=True
+  rep=1/3  method=cp               ... 8.7s  311.4 MB/s  match=True
+  rep=1/3  method=filemover        ... 5.7s  470.7 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 12.3s  220.1 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 9.5s  285.3 MB/s  match=True
+  rep=2/3  method=cp               ... 6.9s  388.6 MB/s  match=True
+  rep=2/3  method=filemover        ... 10.3s  261.7 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 11.0s  245.4 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 11.8s  229.0 MB/s  match=True
+  rep=3/3  method=cp               ... 14.0s  192.9 MB/s  match=True
+  rep=3/3  method=filemover        ... 9.6s  282.4 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR5017128
+  src=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+  dst=/mnt/raid0/benchmark/fast
+  payload: 1 file(s), 2.63 GB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=   10.8s  throughput=  252.9 MB/s  95%CI=[160.7, 345.0]
+  shutil_parallel   time=   11.5s  throughput=  239.5 MB/s  95%CI=[136.1, 342.8]
+  cp                time=    9.9s  throughput=  297.6 MB/s  95%CI=[52.8, 542.5]
+  filemover         time=    8.5s  throughput=  338.3 MB/s  95%CI=[52.2, 624.3]
+  speedup shutil_parallel_vs_shutil_seq: 0.98x  95%CI=[0.22, 1.73]
+  speedup cp_vs_shutil_seq: 1.20x  95%CI=[-0.05, 2.46]
+  speedup filemover_vs_shutil_seq: 1.32x  95%CI=[0.69, 1.94]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1/placement_mover_s2f_SRR5017128.json
+===========================================================================
+
+
+============================================================
+  Accession: SRR22904253
+============================================================
+[placement_conversion] Starting for SRR22904253 ...
+Tools: {'fasterq-dump': '/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader/sratoolkit.3.1.0-ubuntu64/bin/fasterq-dump', 'pigz': '/usr/bin/pigz'}
+
+[1] Downloading SRR22904253 to fast tier (/mnt/raid0/benchmark/fast) ...
+  /mnt/raid0/benchmark/fast/bench_place_SRR22904253/sra/SRR22904253/SRR22904253.1  (56.87 KB)  in 5.8s
+[1b] Copying SRA to slow tier for SRA-on-slow cells ...
+     staged in 0.0s
+
+[2] Running 3 reps across 8 placement cells: FFF, FFS, FSF, FSS, SFF, SFS, SSF, SSS
+  [2] rep=1/3  cell=FFF ... total=1.7s  fasterq=1.7  pigz=0.0  copy=0.0
+  [3] rep=1/3  cell=FFS ... total=1.6s  fasterq=1.6  pigz=0.0  copy=0.0
+  [4] rep=1/3  cell=FSF ... total=1.6s  fasterq=1.6  pigz=0.0  copy=0.0
+  [5] rep=1/3  cell=FSS ... total=2.1s  fasterq=2.1  pigz=0.0  copy=0.0
+  [6] rep=1/3  cell=SFF ... total=2.6s  fasterq=2.6  pigz=0.0  copy=0.0
+  [7] rep=1/3  cell=SFS ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [8] rep=1/3  cell=SSF ... total=1.6s  fasterq=1.5  pigz=0.0  copy=0.0
+  [9] rep=1/3  cell=SSS ... total=1.0s  fasterq=1.0  pigz=0.0  copy=0.0
+  [10] rep=2/3  cell=FFF ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [11] rep=2/3  cell=FFS ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [12] rep=2/3  cell=FSF ... total=1.0s  fasterq=1.0  pigz=0.0  copy=0.0
+  [13] rep=2/3  cell=FSS ... total=0.9s  fasterq=0.9  pigz=0.0  copy=0.0
+  [14] rep=2/3  cell=SFF ... total=1.0s  fasterq=1.0  pigz=0.0  copy=0.0
+  [15] rep=2/3  cell=SFS ... total=2.2s  fasterq=2.2  pigz=0.0  copy=0.0
+  [16] rep=2/3  cell=SSF ... total=1.5s  fasterq=1.5  pigz=0.0  copy=0.0
+  [17] rep=2/3  cell=SSS ... total=1.5s  fasterq=1.4  pigz=0.0  copy=0.0
+  [18] rep=3/3  cell=FFF ... total=1.1s  fasterq=1.1  pigz=0.0  copy=0.0
+  [19] rep=3/3  cell=FFS ... total=0.9s  fasterq=0.9  pigz=0.0  copy=0.0
+  [20] rep=3/3  cell=FSF ... total=1.0s  fasterq=1.0  pigz=0.0  copy=0.0
+  [21] rep=3/3  cell=FSS ... total=0.8s  fasterq=0.8  pigz=0.0  copy=0.0
+  [22] rep=3/3  cell=SFF ... total=0.9s  fasterq=0.9  pigz=0.0  copy=0.0
+  [23] rep=3/3  cell=SFS ... total=0.9s  fasterq=0.9  pigz=0.0  copy=0.0
+  [24] rep=3/3  cell=SSF ... total=0.7s  fasterq=0.7  pigz=0.0  copy=0.0
+  [25] rep=3/3  cell=SSS ... total=0.7s  fasterq=0.7  pigz=0.0  copy=0.0
+
+===========================================================================
+  PLACEMENT BENCHMARK  --  SRR22904253
+  fast=/mnt/raid0/benchmark/fast
+  slow=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+  dest=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader/results
+===========================================================================
+  cell       total      fasterq         pigz         copy   legacy
+  FFF       1.3s       1.3s       0.0s       0.0s    n/a
+  FFS       1.2s       1.2s       0.0s       0.0s    n/a
+  FSF       1.2s       1.2s       0.0s       0.0s    n/a
+  FSS       1.3s       1.3s       0.0s       0.0s    n/a
+  SFF       1.5s       1.5s       0.0s       0.0s    n/a
+  SFS       1.4s       1.4s       0.0s       0.0s    n/a
+  SSF       1.3s       1.3s       0.0s       0.0s    n/a
+  SSS       1.1s       1.1s       0.0s       0.0s    n/a
+
+  Speedup baseline: SSS  (>1 means other cell faster)
+    SSS_vs_FFF: 0.86x  95%CI=[-0.09, 1.80]
+    SSS_vs_FFS: 0.93x  95%CI=[0.07, 1.80]
+    SSS_vs_FSF: 0.92x  95%CI=[-0.13, 1.97]
+    SSS_vs_FSS: 1.01x  95%CI=[-0.33, 2.34]
+    SSS_vs_SFF: 0.87x  95%CI=[-0.38, 2.13]
+    SSS_vs_SFS: 0.82x  95%CI=[0.45, 1.18]
+    SSS_vs_SSF: 0.87x  95%CI=[0.43, 1.32]
+
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1/placement_conversion_SRR22904253.json
+===========================================================================
+
+[placement_mover: fast -> slow] Starting for SRR22904253 ...
+WARNING:root:NCBI runinfo attempt 1/5 failed for SRR22904253: HTTPSConnectionPool(host='eutils.ncbi.nlm.nih.gov', port=443): Max retries exceeded with url: /entrez/eutils/efetch.fcgi?db=sra&id=SRR22904253&rettype=runinfo&retmode=text&tool=fastbiodl (Caused by NewConnectionError("HTTPSConnection(host='eutils.ncbi.nlm.nih.gov', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable")); retrying in 1.26s
+
+[1] Downloading SRR22904253 to /mnt/raid0/benchmark/fast ...
+  /mnt/raid0/benchmark/fast/bench_mover_prep_SRR22904253/sra/SRR22904253/SRR22904253.1  (56.87 KB)  in 5.6s
+
+[2] Converting SRR22904253 to .fastq.gz (golden copy) ...
+  1 file(s), 30.53 KB  (fasterq=0.8s, pigz=0.0s)
+
+[3] Running 3 reps x 4 methods (/mnt/raid0/benchmark/fast -> /home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader)
+  rep=1/3  method=shutil_seq       ... 0.0s  30.6 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 0.0s  1.8 MB/s  match=True
+  rep=1/3  method=cp               ... 0.0s  0.7 MB/s  match=True
+  rep=1/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 0.0s  57.3 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 0.0s  20.0 MB/s  match=True
+  rep=2/3  method=cp               ... 0.0s  2.4 MB/s  match=True
+  rep=2/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 0.0s  27.8 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 0.0s  18.5 MB/s  match=True
+  rep=3/3  method=cp               ... 0.0s  2.6 MB/s  match=True
+  rep=3/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR22904253
+  src=/mnt/raid0/benchmark/fast
+  dst=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+  payload: 1 file(s), 30.53 KB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=    0.0s  throughput=   38.6 MB/s  95%CI=[-1.8, 79.0]
+  shutil_parallel   time=    0.0s  throughput=   13.4 MB/s  95%CI=[-11.7, 38.5]
+  cp                time=    0.0s  throughput=    1.9 MB/s  95%CI=[-0.8, 4.6]
+  filemover         time=    0.5s  throughput=    0.1 MB/s  95%CI=[0.1, 0.1]
+  speedup shutil_parallel_vs_shutil_seq: 0.52x  95%CI=[-0.65, 1.69]
+  speedup cp_vs_shutil_seq: 0.07x  95%CI=[-0.03, 0.16]
+  speedup filemover_vs_shutil_seq: 0.00x  95%CI=[0.00, 0.00]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1/placement_mover_f2s_SRR22904253.json
+===========================================================================
+
+[placement_mover: slow -> fast] Starting for SRR22904253 ...
+
+[1] Downloading SRR22904253 to /mnt/raid0/benchmark/fast ...
+  /mnt/raid0/benchmark/fast/bench_mover_prep_SRR22904253/sra/SRR22904253/SRR22904253.1  (56.87 KB)  in 5.0s
+
+[2] Converting SRR22904253 to .fastq.gz (golden copy) ...
+  1 file(s), 30.53 KB  (fasterq=0.9s, pigz=0.0s)
+
+[2b] Copying golden set to source tier (/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader) ...
+
+[3] Running 3 reps x 4 methods (/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader -> /mnt/raid0/benchmark/fast)
+  rep=1/3  method=shutil_seq       ... 0.0s  27.0 MB/s  match=True
+  rep=1/3  method=shutil_parallel  ... 0.0s  23.0 MB/s  match=True
+  rep=1/3  method=cp               ... 0.0s  3.1 MB/s  match=True
+  rep=1/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+  rep=2/3  method=shutil_seq       ... 0.0s  68.8 MB/s  match=True
+  rep=2/3  method=shutil_parallel  ... 0.0s  25.5 MB/s  match=True
+  rep=2/3  method=cp               ... 0.0s  3.5 MB/s  match=True
+  rep=2/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+  rep=3/3  method=shutil_seq       ... 0.0s  69.3 MB/s  match=True
+  rep=3/3  method=shutil_parallel  ... 0.0s  23.6 MB/s  match=True
+  rep=3/3  method=cp               ... 0.0s  4.2 MB/s  match=True
+  rep=3/3  method=filemover        ... 0.5s  0.1 MB/s  match=True
+
+===========================================================================
+  MOVER BENCHMARK  --  SRR22904253
+  src=/home/ubuntu/FastBioDL-Adaptive-Parallel_Downloader
+  dst=/mnt/raid0/benchmark/fast
+  payload: 1 file(s), 30.53 KB  (same_tier=False)
+===========================================================================
+  shutil_seq        time=    0.0s  throughput=   55.0 MB/s  95%CI=[-5.3, 115.4]
+  shutil_parallel   time=    0.0s  throughput=   24.0 MB/s  95%CI=[20.8, 27.3]
+  cp                time=    0.0s  throughput=    3.6 MB/s  95%CI=[2.2, 5.0]
+  filemover         time=    0.5s  throughput=    0.1 MB/s  95%CI=[0.1, 0.1]
+  speedup shutil_parallel_vs_shutil_seq: 0.33x  95%CI=[-1.10, 1.77]
+  speedup cp_vs_shutil_seq: 0.03x  95%CI=[-0.11, 0.18]
+  speedup filemover_vs_shutil_seq: 0.00x  95%CI=[-0.00, 0.00]
+  Cache-eviction methods used: {'sudo': 24}
+  JSON -> /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1/placement_mover_s2f_SRR22904253.json
+===========================================================================
+
+
+============================================================
+  All benchmarks complete.  exit=0
+  Results: /home/ubuntu/benchmark_results_fabric/placement_20260416_225811_node1
+============================================================
