@@ -7,7 +7,8 @@
 *.fastq.gz
 
 # Ignore specific directories
-aria2c/
 fastbiodl/
-sratools/
+seqflux_results/
 sratoolkit.3.1.0-ubuntu64/
+venv/
+__pycache__/

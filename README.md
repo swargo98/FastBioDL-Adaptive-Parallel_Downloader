@@ -1,86 +1,72 @@
-# FastBioDL — Adaptive Parallel Downloader for Genomic Data
+# SeqFlux
 
-FastBioDL is an open-source, adaptive, **HTTP/FTP** downloader that maximises
-throughput by *learning* the right number of concurrent streams at run time.
-It reproduces all experiments from our PDSW 25 Submission:
+SeqFlux is a resource-aware pipeline for acquiring NCBI SRA datasets and producing compressed FASTQ output. It overlaps three stages:
 
-> **Adaptive Parallel Downloader for Large Genomic Datasets**  
-> Rasman M. Swargo *et al.*, PDSW/SC 25
+1. Adaptive segmented HTTPS download of SRA archives.
+2. SRA-to-FASTQ conversion with `fasterq-dump`.
+3. Parallel FASTQ compression with `pigz`.
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16757680.svg)](https://doi.org/10.5281/zenodo.16757680)
+SeqFlux was previously named FastBioDL, so some internal filenames still use `fastbiodl`.
 
----
+## Requirements
 
-## Quick start
+- Python 3.9 or newer
+- Python packages in `requirements.txt`
+- NCBI SRA Toolkit, especially `fasterq-dump`
+- `pigz`
 
-| Scenario | You need | Steps |
-|----------|----------|-------|
-| **Reproduce paper results (easy)** | A free Google account | 1. Open **`fastbiodl-artifact.ipynb`** in Colab.<br>2. Click **Runtime ▸ Run all**. |
-| **Run locally** | Linux / macOS, Python ≥ 3.9 | 1. `git clone https://github.com/swargo98/FastBioDL-Adaptive-Parallel_Downloader.git`<br>2. `cd FastBioDL-Adaptive-Parallel_Downloader`<br>3. `chmod +x setup.sh && ./setup.sh`<br>4. `source venv/bin/activate`<br>5. `pip install -r requirements.txt`<br>6. Edit **`config_fastbiodl.py`** if you need to change config.<br>7. Run&nbsp;`python fastbiodl.py -i accessions.txt` |
-| **High‑speed network tests** | Two hosts connected by ≥ 10 Gb s⁻¹ **or an FTP server** | 1. Perform steps 1–5 above on both of the nodes.<br>2. On the **source** node create or enable an FTP server (e.g., **vsftpd**).<br>3. Edit **`config_apd.py`** to point to the FTP endpoint, dataset path, and optimizer parameters.<br>4. Run&nbsp;`python adaptive_parallel_downloader.py` |
-<!-- | **Run locally** | Linux / macOS, Python ≥ 3.9 | 1. `git clone https://github.com/swargo98/FastBioDL-Adaptive-Parallel_Downloader.git`<br>2. `cd FastBioDL-Adaptive-Parallel_Downloader`<br>3. `chmod +x setup.sh && ./setup.sh`<br>4. `source venv/bin/activate`<br>5. Edit **`config_fastbiodl.py`** if you need to change paths, *k*, or output dirs.<br>6. Run&nbsp;`python fastbiodl.py -i accessions.txt` |
-| **High-speed network tests** | Two hosts connected by ≥ 10 Gb s⁻¹ **plus an FTP server** | 1. Perform steps 1–4 above on the **sink** node.<br>2. On the **source** node create or enable an FTP server (e.g., **vsftpd**).<br>3. Edit **`config_apd.py`** to point to the FTP endpoint, dataset path, and optimizer parameters.<br>4. Run&nbsp;`python adaptive_parallel_downloader.py` | -->
+Install the system tools with your platform package manager, or use:
 
-> **Important:** *Always* copy the example config most similar to your setup and
-> adjust paths, accession lists, and the penalty constant **k**.
-
----
-
-## Repository layout
-
-```
-FastBioDL-Adaptive-Parallel_Downloader/
-├── accessions.txt # Example SRA/ENA run list
-├── adaptive_parallel_downloader.py
-├── config_apd.py # Config for adaptive_parallel_downloader.py
-├── config_fastbiodl.py # Config for fastbiodl.py
-├── fastbiodl.py
-├── fastbiodl_artifact.ipynb # Colab walkthrough / reproduction notebook
-├── get_pip.py # Bootstraps pip on minimal systems
-├── requirements.txt # Exact Python package versions
-├── search.py # optimizer
-├── setup.sh # Creates venv
-└── utils.py # Helper functions
+```bash
+source setup_sratools.sh --persist
 ```
 
----
+Install Python dependencies:
 
-## Dependencies
-
-* Python 3.9 – 3.12  
-* `requests`, `numpy`, `pandas`, `tqdm`, `matplotlib`, `argparse`  
-* (High-speed tests) `iperf3`, any FTP server, ≥ 10 Gb s⁻¹ NIC
-
-Exact versions are pinned in `requirements.txt`.
-
----
-
-## Reproducing paper figures
-
-| Figure / Table | Script / notebook cell | Expected runtime |
-|----------------|------------------------|------------------|
-| Table 3 (public endpoints) | `fastbiodl_artifact.ipynb` Cell \[5\] | Depends on the dataset |
-| Figure 5 | Cell \[10\] | Depends on the dataset |
-| Figure 6 (Fabric) | `adaptive_parallel_downloader.py` | Depends on link speed |
-
----
-
-## Citing
-
-This section will be updated soon.
-<!-- If you use FastBioDL in academic work, please cite:
-
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
-@inproceedings{Swargo2025FastBioDL,
-  title     = {Adaptive Parallel Downloader for Large Genomic Datasets},
-  author    = {Rasman Mubtasim Swargo and Md Arifuzzaman and Engin Arslan},
-  booktitle = {Proc. PDSW/SC},
-  year      = {2025}
-}
-``` -->
 
----
+## Run Locally
+
+Create a text file with one SRA accession per line, then run:
+
+```bash
+python fastbiodl_upgrade.py \
+  -i accessions.txt \
+  --sra-dir /path/to/fast/sra \
+  --fastq-dir /path/to/fast/fastq-work \
+  --out-dir /path/to/final/fastq-gz
+```
+
+The final directory receives `.fastq.gz` files. Logs and timing metadata are written under `logs/fastbiodl/`.
+
+## Run On Expanse
+
+```bash
+sbatch run_fastbiodl_expanse.sh /path/to/accessions.txt
+```
+
+The script runs SeqFlux only.
+
+## Repository Layout
+
+```text
+.
+├── config_fastbiodl.py       # SeqFlux runtime configuration
+├── converter.py              # fasterq-dump and pigz pipeline stage
+├── fastbiodl_upgrade.py      # main SeqFlux entry point
+├── ncbi_lookup.py            # NCBI URL resolution helpers
+├── requirements.txt          # Python dependencies
+├── run_fastbiodl_expanse.sh  # Expanse SeqFlux runner
+├── search.py                 # online concurrency optimizer
+├── setup_sratools.sh         # helper for SRA Toolkit and pigz
+├── storage_config.py         # scratch-path helpers
+└── utils.py                  # shared utilities
+```
 
 ## License
 
-MIT — see `LICENSE` for details.
+MIT. See `LICENSE`.

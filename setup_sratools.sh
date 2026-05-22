@@ -79,9 +79,8 @@ if [[ ! -x "${BIN_DIR}/prefetch" ]]; then
   exit 1
 fi
 
-echo "[4/6] Installing pigz and aria2c"
+echo "[4/6] Installing pigz"
 install_apt_package "pigz" "pigz"
-install_apt_package "aria2" "aria2c"
 
 echo "[5/6] Configuring PATH"
 export PATH="${BIN_DIR}:${PATH}"
@@ -101,10 +100,10 @@ venv_path="${VIRTUAL_ENV:-}"
 venv_path="$(printf '%s' "${venv_path}" | tr -d '\r\n')"
 
 if [[ -n "${venv_path}" ]] && [[ -d "${venv_path}/bin" ]]; then
-  # Symlink SRA binaries plus pigz/aria2c into venv/bin so they work without sourcing.
+  # Symlink SRA binaries plus pigz into venv/bin so they work without sourcing.
   linked_count=0
 
-  for tool_name in pigz aria2c; do
+  for tool_name in pigz; do
     tool_path="$(command -v "${tool_name}" || true)"
     if [[ -n "${tool_path}" ]] && [[ -x "${tool_path}" ]]; then
       ln -sf "${tool_path}" "${venv_path}/bin/${tool_name}"
@@ -139,7 +138,6 @@ echo
 echo "Verifying installation:"
 prefetch --version
 pigz --version | head -n 1
-aria2c --version | head -n 1
 
 echo
 echo "SRA Toolkit setup complete."
