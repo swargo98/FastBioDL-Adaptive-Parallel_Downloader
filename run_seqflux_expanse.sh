@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run only the fastbiodl end-to-end SRA benchmark on SDSC Expanse.
+# Run only the seqflux end-to-end SRA benchmark on SDSC Expanse.
 #
 # Storage layout (FFS, per user configuration on Expanse):
 #   SRA download    -> Lustre (fast network FS, --sra-dir)
@@ -9,12 +9,12 @@
 #                              destination for compressed outputs).
 #
 # Usage:
-#   sbatch run_fastbiodl_ffs_expanse.sh <accession_list.txt>
+#   sbatch run_seqflux_expanse.sh <accession_list.txt>
 #
 # Example:
-#   sbatch run_fastbiodl_ffs_expanse.sh accessions_large_PRJNA251383.txt
+#   sbatch run_seqflux_expanse.sh accessions_large_PRJNA251383.txt
 
-#SBATCH --job-name=fastbiodl_ffs
+#SBATCH --job-name=seqflux_ffs
 #SBATCH --account=umr115
 #SBATCH --partition=compute
 #SBATCH --nodes=1
@@ -41,7 +41,7 @@ fi
 
 # shellcheck disable=SC1091
 source "$CONDA_BASE/etc/profile.d/conda.sh"
-conda activate fastbiodl
+conda activate seqflux
 
 export PATH="${CONDA_PREFIX}/bin:$PATH"
 
@@ -85,7 +85,7 @@ fi
 ACC_TAG="$(basename "$ACC_FILE" .txt)"
 
 # --- Storage layout: Lustre (fast) / Lustre (fast) / NVMe (slow) -----------
-LUSTRE_BASE="/expanse/lustre/scratch/$USER/temp_project/fastbiodl_ffs/${SLURM_JOB_ID:-local}"
+LUSTRE_BASE="/expanse/lustre/scratch/$USER/temp_project/seqflux_ffs/${SLURM_JOB_ID:-local}"
 
 pick_local_scratch() {
     local candidate
@@ -129,11 +129,11 @@ PIGZ_OUT_DIR="$NVME_BASE/pigz"
 WORK_ROOT="$NVME_BASE/work"
 
 RESULTS_ROOT="${RESULTS_ROOT:-$(dirname "$REPO_DIR")/benchmark_results}"
-RESULTS_OUT="$RESULTS_ROOT/fastbiodl_ffs_${ACC_TAG}_${SLURM_JOB_ID:-local}"
+RESULTS_OUT="$RESULTS_ROOT/seqflux_ffs_${ACC_TAG}_${SLURM_JOB_ID:-local}"
 
 mkdir -p "$SRA_OUT_DIR" "$FASTQ_OUT_DIR" "$PIGZ_OUT_DIR" "$WORK_ROOT" "$RESULTS_OUT" logs
 
-# fastbiodl converter scratch comes from LOCAL_SCRATCH; keep it on node-local NVMe.
+# seqflux converter scratch comes from LOCAL_SCRATCH; keep it on node-local NVMe.
 export LOCAL_SCRATCH="$WORK_ROOT"
 
 echo "=========================================="
@@ -152,9 +152,9 @@ echo "  Results       : $RESULTS_OUT"
 echo "=========================================="
 which aria2c fasterq-dump pigz prefetch 2>/dev/null || true
 
-invoke_fastbiodl() {
+invoke_seqflux() {
     local acc_file="$1"
-    "$PYTHON_BIN" "$REPO_DIR/fastbiodl_upgrade.py" \
+    "$PYTHON_BIN" "$REPO_DIR/seqflux.py" \
         -i "$acc_file" \
         --sra-dir "$SRA_OUT_DIR" \
         --fastq-dir "$FASTQ_OUT_DIR" \
@@ -189,20 +189,20 @@ overall_status=0
 
 for ((run=1; run<=REPEATS; run++)); do
     echo "============================================================"
-    echo "[$(date '+%F %T')] acc=$ACC_TAG  tool=fastbiodl  run=$run/$REPEATS"
+    echo "[$(date '+%F %T')] acc=$ACC_TAG  tool=seqflux  run=$run/$REPEATS"
     echo "============================================================"
 
-    invoke_fastbiodl "$ACC_FILE"
+    invoke_seqflux "$ACC_FILE"
     ec=$?
 
     if (( ec != 0 )); then
-        echo "[WARN] fastbiodl with $ACC_TAG (run $run) exited rc=$ec"
+        echo "[WARN] seqflux with $ACC_TAG (run $run) exited rc=$ec"
         overall_status=$ec
     fi
 
     cleaned=$(cleanup_dirs)
     total_deleted_bytes=$((total_deleted_bytes + cleaned))
-    echo "[clean] reclaimed $(to_human "$cleaned") after fastbiodl run $run"
+    echo "[clean] reclaimed $(to_human "$cleaned") after seqflux run $run"
 
     sleep "$SLEEP_BETWEEN"
 done

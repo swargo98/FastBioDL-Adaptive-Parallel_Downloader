@@ -12,7 +12,7 @@ import asyncio
 import aiohttp
 from threading import Thread, Lock
 from collections import deque
-from config_fastbiodl import configurations, get_fastbiodl_tmpfs_dir
+from config_seqflux import configurations, get_seqflux_tmpfs_dir
 from storage_config import get_nvme_device
 from utils import available_space, available_space_bytes
 from search import base_optimizer, gradient_opt_fast, exit_signal
@@ -27,7 +27,7 @@ from ncbi_lookup import get_ncbi_urls as shared_get_ncbi_urls
 # Suppress FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-RUN_LOG_DIR = os.path.join("logs", "fastbiodl")
+RUN_LOG_DIR = os.path.join("logs", "seqflux")
 
 
 def _accession_group_name(input_path: str) -> str:
@@ -49,8 +49,8 @@ def get_ncbi_urls(acc: str, field: str = "sra_ftp") -> List[Tuple[str, str]]:
         backoff_base=float(configurations.get("ncbi_lookup_backoff_base", 1.0)),
         timeout=int(configurations.get("ncbi_lookup_timeout", 30)),
         max_rps=float(configurations.get("ncbi_lookup_rps", 2.0)),
-        user_agent=str(configurations.get("ncbi_user_agent", "fastbiodl/3.0 (+https://github.com/)")),
-        tool_name=str(configurations.get("ncbi_tool_name", "fastbiodl")),
+        user_agent=str(configurations.get("ncbi_user_agent", "seqflux/3.0 (+https://github.com/)")),
+        tool_name=str(configurations.get("ncbi_tool_name", "seqflux")),
         email=os.environ.get("NCBI_EMAIL", configurations.get("ncbi_email", "")),
         api_key=os.environ.get("NCBI_API_KEY", configurations.get("ncbi_api_key", "")),
         logger=logging,
@@ -808,7 +808,7 @@ async def download_worker_async(
     async with aiohttp.ClientSession(
         connector=connector,
         timeout=timeout,
-        headers={'User-Agent': 'fastbiodl/3.0'}
+        headers={'User-Agent': 'seqflux/3.0'}
     ) as session:
         
         while True:
@@ -1108,17 +1108,17 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, graceful_exit)
 
     parser = argparse.ArgumentParser(
-        description="Production-grade parallel NCBI SRA downloader"
+        description="SeqFlux resource-aware NCBI SRA acquisition pipeline"
     )
     parser.add_argument("-i", "--input", required=True,
                         help="Text file: one accession per line.")
-    parser.add_argument("-o", "--outdir", "--out-dir", default="fastbiodl/output/",
+    parser.add_argument("-o", "--outdir", "--out-dir", default="seqflux/output/",
                         help="Slow-tier destination for .fastq.gz files "
                              "(pigz writes directly here; no separate move stage).")
     parser.add_argument("--sra-dir", default=None,
                         help="Fast-tier directory where .sra downloads are written. "
                              "Defaults to a per-PID subdir under LOCAL_SCRATCH "
-                             "(see config_fastbiodl.get_fastbiodl_tmpfs_dir).")
+                             "(see config_seqflux.get_seqflux_tmpfs_dir).")
     parser.add_argument("--fastq-dir", default=None,
                         help="Fast-tier working directory for the SRA→FASTQ conversion stage. "
                              "The converter creates ./fastq and ./tmp subdirectories here. "
@@ -1134,14 +1134,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     accession_group = _accession_group_name(args.input)
-    RUN_LOG_DIR = os.path.join("logs", "fastbiodl", accession_group)
+    RUN_LOG_DIR = os.path.join("logs", "seqflux", accession_group)
     os.makedirs(RUN_LOG_DIR, exist_ok=True)
 
     # Configure logging
     log_FORMAT = '%(created)f -- %(levelname)s: %(message)s'
     log_file = os.path.join(
         RUN_LOG_DIR,
-        f'fastbiodl.{datetime.datetime.now().strftime("%m_%d_%Y_%H_%M_%S")}.log'
+        f'seqflux.{datetime.datetime.now().strftime("%m_%d_%Y_%H_%M_%S")}.log'
     )
     
     if configurations.get("loglevel") == "debug":
@@ -1180,7 +1180,7 @@ if __name__ == '__main__':
 
     # Resolve fast-tier paths from CLI flags, falling back to the LOCAL_SCRATCH
     # derived per-PID directory used historically.
-    default_tmpfs = get_fastbiodl_tmpfs_dir()
+    default_tmpfs = get_seqflux_tmpfs_dir()
     sra_dir       = args.sra_dir if args.sra_dir else default_tmpfs
     fastq_work_dir = args.fastq_dir if args.fastq_dir else default_tmpfs
     download_dir   = sra_dir               # downloader writes .sra files here (fast tier)
@@ -1312,10 +1312,10 @@ if __name__ == '__main__':
         max_pigz_jobs=configurations.get("max_pigz_jobs", None),
         required_size_factor=configurations.get(
             "conversion_required_factor",
-            configurations.get("conversion_output_factor", 10.0),
+            configurations.get("conversion_output_factor", 12.0),
         ),
-        reserve_size_factor=configurations.get("conversion_reserve_factor", 8.0),
-        pigz_reserve_factor=configurations.get("conversion_pigz_reserve_factor", 3.0),
+        reserve_size_factor=configurations.get("conversion_reserve_factor", 12.0),
+        pigz_reserve_factor=configurations.get("conversion_pigz_reserve_factor", 3.5),
         disk_safety_margin_gb=configurations.get("conversion_disk_safety_margin_gb", 0.0),
         shared_reserved_bytes=shared_disk_reserved_bytes,
         shared_pending_headroom_bytes=shared_min_pending_conversion_bytes,
@@ -1408,7 +1408,7 @@ if __name__ == '__main__':
     #   download:   pipeline start → last file fully downloaded
     #   conversion: first fasterq-dump launched → last fasterq-dump finished
     #   compression:first pigz launched        → last pigz finished
-    # Phases overlap intentionally (fastbiodl pipelines them concurrently).
+    # Phases overlap intentionally (seqflux pipelines them concurrently).
     _dl_start   = t_start
     _dl_end     = t_download_end.value
     _fq_start   = converter.t_first_fasterq_start   # 0.0 if no job ran
@@ -1424,7 +1424,7 @@ if __name__ == '__main__':
 
     import json as _json
     timing_result = {
-        "tool":       "fastbiodl",
+        "tool":       "seqflux",
         "accessions": accs,
         "phases": {
             "download": {
@@ -1456,7 +1456,7 @@ if __name__ == '__main__':
     }
 
     ts_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    timing_json = os.path.join(RUN_LOG_DIR, f"benchmark_fastbiodl_results_{ts_str}.json")
+    timing_json = os.path.join(RUN_LOG_DIR, f"benchmark_seqflux_results_{ts_str}.json")
     with open(timing_json, "w") as _f:
         _json.dump(timing_result, _f, indent=2)
 
@@ -1464,7 +1464,7 @@ if __name__ == '__main__':
     ph = timing_result["phases"]
     logging.info(
         f"\n{'='*60}\n"
-        f"  BENCHMARK SUMMARY (fastbiodl)\n"
+        f"  BENCHMARK SUMMARY (seqflux)\n"
         f"{'='*60}\n"
         f"  Phase windows (wall-clock, overlapping):\n"
         f"    Download    {ph['download']['start']:.3f} → {ph['download']['end']:.3f}"
