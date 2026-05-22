@@ -10,6 +10,7 @@ SRA acquisition is not just a download step. Archives expand substantially durin
 - Downloads `.sra` archives with resumable segmented HTTPS transfers.
 - Adapts download worker concurrency online using a utility-guided gradient controller.
 - Converts SRA archives to FASTQ with `fasterq-dump`.
+- Runs conversion and compression concurrently with independent `fasterq-dump` and `pigz` process caps.
 - Compresses FASTQ output with `pigz` and writes `.fastq.gz` files directly to the chosen output tier.
 - Uses CPU, disk I/O, free-space, and phase-aware reservation checks before admitting conversion work.
 - Records benchmark timing metadata for download, conversion, compression, and pairwise stage overlap.
@@ -64,7 +65,7 @@ SeqFlux separates the working tier from the final destination tier:
 - `--fastq-dir`: scratch workspace for `fasterq-dump` output and temporary files.
 - `--out-dir`: destination for compressed `.fastq.gz` files written by `pigz`.
 
-On systems with multiple storage tiers, put `--sra-dir` and `--fastq-dir` on the tier best suited for high-throughput scratch work. The paper's Expanse configuration uses Lustre for SRA and FASTQ scratch, then writes compressed output to node-local NVMe.
+On systems with multiple storage tiers, put `--sra-dir` and `--fastq-dir` on the tier best suited for high-throughput scratch work. The included Expanse configuration uses Lustre for SRA and FASTQ scratch, then writes compressed output to node-local NVMe.
 
 If `--sra-dir` or `--fastq-dir` is omitted, SeqFlux creates a per-process scratch directory under `LOCAL_SCRATCH`, or under `/scratch/$USER/job_$SLURM_JOB_ID` when `LOCAL_SCRATCH` is not set.
 
@@ -83,11 +84,11 @@ Runtime defaults live in `config_seqflux.py`. Important knobs include:
 - `download_disk_safety_margin_gb` and `conversion_disk_safety_margin_gb`: free-space safety margins.
 - `ncbi_lookup_rps`: NCBI URL lookup rate limit.
 
-The default reservation factors follow the paper draft's conservative conversion accounting: `12.0` for conversion runway and reservation, and `3.5` for compressed-output reservation.
+The default reservation factors use conservative conversion accounting: `12.0` for conversion runway and reservation, and `3.5` for compressed-output reservation.
 
 ## Run On SDSC Expanse
 
-The Expanse helper runs the FFS storage placement described in the draft: SRA and FASTQ scratch on Lustre, compressed output on node-local NVMe.
+The Expanse helper runs the FFS storage placement for clustered systems: SRA and FASTQ scratch on Lustre, compressed output on node-local NVMe.
 
 ```bash
 sbatch run_seqflux_expanse.sh accessions_large_PRJNA251383.txt
