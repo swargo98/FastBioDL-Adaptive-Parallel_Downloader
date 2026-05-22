@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-converter.py — SRA to FASTQ conversion stage for the fastbiodl pipeline.
+converter.py — SRA to FASTQ conversion stage for the seqflux pipeline.
 
 Architecture (FFS-direct, no move phase):
   - SRAConverter class owns all state and worker lifecycle.
@@ -19,12 +19,12 @@ Architecture (FFS-direct, no move phase):
     their final destination. The queue is never consumed by SRAConverter
     itself and may be drained inline by the caller after stop().
 
-Usage (from fastbiodl_upgrade.py):
+Usage (from seqflux.py):
     from converter import SRAConverter
     converter = SRAConverter(
         processing_queue=processing_queue,
         move_queue=move_queue,
-        work_dir="<fast_tier>/fastbiodl/",            # fast tier
+        work_dir="<fast_tier>/seqflux/",            # fast tier
         compressed_output_dir="<slow_tier>/output/",  # slow tier
         nvme_device=os.environ.get("EXPANSE_NVME_DEVICE", "nvme0n1"),
         threads_per_job=4,
@@ -74,7 +74,7 @@ from threading import Thread, Lock, Event
 from collections import deque
 from typing import Optional
 
-from config_fastbiodl import get_fastbiodl_work_dir
+from config_seqflux import get_seqflux_work_dir
 from storage_config import get_nvme_device
 
 
@@ -754,7 +754,7 @@ def _report_conversion_throughput(
     throughput_lock: Lock,
     stop_event,
     log_dir: str = "logs",
-    fastq_dir: str = os.path.join(get_fastbiodl_work_dir(), "fastq"),
+    fastq_dir: str = os.path.join(get_seqflux_work_dir(), "fastq"),
     compressed_output_dir: Optional[str] = None,
 ):
     """
@@ -769,7 +769,7 @@ def _report_conversion_throughput(
     t = time.time()
     fname = os.path.join(
         log_dir,
-        f"fastbiodl/log_conversion_{datetime.datetime.fromtimestamp(t).strftime('%Y%m%d_%H%M%S')}.csv"
+        f"seqflux/log_conversion_{datetime.datetime.fromtimestamp(t).strftime('%Y%m%d_%H%M%S')}.csv"
     )
     
     try:
@@ -964,7 +964,7 @@ class SRAConverter:
         self,
         processing_queue: mp.Queue,
         move_queue: mp.Queue,
-        work_dir: str = get_fastbiodl_work_dir(),
+        work_dir: str = get_seqflux_work_dir(),
         compressed_output_dir: Optional[str] = None,
         nvme_device: str = get_nvme_device(),
         threads_per_job: int = 8,
@@ -972,9 +972,9 @@ class SRAConverter:
         nvme_threshold: float = 92.0,
         max_jobs: Optional[int] = None,
         max_pigz_jobs: Optional[int] = None,
-        required_size_factor: float = 10.0,
-        reserve_size_factor: float = 8.0,
-        pigz_reserve_factor: float = 3.0,
+        required_size_factor: float = 12.0,
+        reserve_size_factor: float = 12.0,
+        pigz_reserve_factor: float = 3.5,
         disk_safety_margin_gb: float = 0.0,
         shared_reserved_bytes: Optional[mp.Value] = None,
         shared_pending_headroom_bytes: Optional[mp.Value] = None,

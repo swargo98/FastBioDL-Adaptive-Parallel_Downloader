@@ -7,7 +7,7 @@
 *.fastq.gz
 
 # Ignore specific directories
-fastbiodl/
+seqflux/
 seqflux_results/
 sratoolkit.3.1.0-ubuntu64/
 venv/
