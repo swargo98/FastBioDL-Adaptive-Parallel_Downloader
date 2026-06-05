@@ -162,6 +162,7 @@ def human_bytes(num_bytes: int) -> str:
 
 
 def dir_size_bytes(path: Path) -> int:
+    """Return apparent file bytes under a directory."""
     total = 0
     stack = [path]
     while stack:
@@ -174,6 +175,34 @@ def dir_size_bytes(path: Path) -> int:
                             stack.append(Path(entry.path))
                         elif entry.is_file(follow_symlinks=False):
                             total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return total
+
+
+def dir_allocated_bytes(path: Path) -> int:
+    """Return allocated disk bytes under a directory.
+
+    This is used for tools such as aria2c that write segmented ranges. A file's
+    apparent size can jump to the full target size as soon as a high offset is
+    touched, even though only a small fraction has arrived. Allocated blocks
+    grow with the data written when preallocation is disabled.
+    """
+    total = 0
+    stack = [path]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(Path(entry.path))
+                        elif entry.is_file(follow_symlinks=False):
+                            stat_result = entry.stat(follow_symlinks=False)
+                            total += int(getattr(stat_result, "st_blocks", 0)) * 512
                     except OSError:
                         continue
         except OSError:
@@ -301,6 +330,7 @@ def run_kingfisher(args: argparse.Namespace, accessions: List[str], logger: Thro
                     f"--split={args.threads}",
                     f"--max-connection-per-server={args.threads}",
                     "--min-split-size=5M",
+                    "--file-allocation=none",
                     "--max-tries=3",
                     "--retry-wait=5",
                     f"--dir={acc_dir}",
@@ -557,6 +587,9 @@ def main() -> int:
     elif args.tool == "fastbiodl":
         total_bytes_func = lambda: 0
         activity_func = lambda: (0, 0)
+    elif args.tool == "kingfisher":
+        total_bytes_func = lambda: dir_allocated_bytes(args.sra_dir)
+        activity_func = lambda: state.snapshot()[1:]
     else:
         total_bytes_func = lambda: dir_size_bytes(args.sra_dir)
         activity_func = lambda: state.snapshot()[1:]
@@ -598,6 +631,7 @@ def main() -> int:
 
     t_end = time.time()
     final_bytes = dir_size_bytes(args.sra_dir)
+    final_allocated_bytes = dir_allocated_bytes(args.sra_dir)
     summary = {
         "status": status,
         "error": error,
@@ -616,6 +650,8 @@ def main() -> int:
         "download_wall_time_s": round(t_end - t_start, 3),
         "downloaded_dir_bytes": final_bytes,
         "downloaded_dir_human": human_bytes(final_bytes),
+        "downloaded_dir_allocated_bytes": final_allocated_bytes,
+        "downloaded_dir_allocated_human": human_bytes(final_allocated_bytes),
         "configured_workers": configured_workers,
         "tool_result": result,
     }
