@@ -179,8 +179,6 @@ invoke_download() {
 }
 
 accession_lists=(
-    "$ACCESSION_DIR/accessions_large_PRJNA251383.txt"
-    "$ACCESSION_DIR/accessions_medium_PRJNA353374.txt"
     "$ACCESSION_DIR/accessions_small_PRJNA916347.txt"
 )
 
