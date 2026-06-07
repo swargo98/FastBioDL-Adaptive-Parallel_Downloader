@@ -147,7 +147,7 @@ accession_lists=(
     "$ACCESSION_DIR/accessions_small_PRJNA916347.txt"
 )
 
-tools=( "fastbiodl", "pysradb")
+tools=( "fastbiodl" "pysradb" )
 
 total_deleted_bytes=0
 overall_status=0
