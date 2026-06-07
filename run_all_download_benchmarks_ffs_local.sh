@@ -30,7 +30,7 @@ set -uo pipefail
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 THREADS="${THREADS:-8}"
-FASTBIODL_WORKERS="${FASTBIODL_WORKERS:-$THREADS}"
+FASTBIODL_WORKERS="${FASTBIODL_WORKERS:-20}"
 REPEATS="${REPEATS:-3}"
 SLEEP_BETWEEN="${SLEEP_BETWEEN:-60}"
 LOG_INTERVAL="${LOG_INTERVAL:-1}"
@@ -149,7 +149,7 @@ accession_lists=(
     "$ACCESSION_DIR/accessions_small_PRJNA916347.txt"
 )
 
-tools=( "fastbiodl" "kingfisher" "pysradb" "sratools" )
+tools=( "fastbiodl")
 
 total_deleted_bytes=0
 overall_status=0
